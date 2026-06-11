@@ -2,6 +2,7 @@ package com.iot.ruleengine.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.iot.ruleengine.dto.PageResult;
 import com.iot.ruleengine.dto.Result;
 import com.iot.ruleengine.entity.ActionLog;
 import com.iot.ruleengine.repository.ActionLogRepository;
@@ -28,23 +29,23 @@ public class ActionLogController {
     }
 
     @GetMapping("/list")
-    public Result<Page<ActionLog>> listLogs(
+    public Result<PageResult<ActionLog>> listLogs(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String deviceId,
             @RequestParam(required = false) String actionType,
-            @RequestParam(required = false) Integer executeStatus,
+            @RequestParam(required = false) Integer result,
             @RequestParam(required = false) LocalDateTime startTime,
             @RequestParam(required = false) LocalDateTime endTime) {
         Page<ActionLog> page = new Page<>(pageNum, pageSize);
         Map<String, Object> params = new HashMap<>();
         params.put("deviceId", deviceId);
         params.put("actionType", actionType);
-        params.put("executeStatus", executeStatus);
+        params.put("result", result);
         params.put("startTime", startTime);
         params.put("endTime", endTime);
-        Page<ActionLog> result = actionLogService.listLogs(page, params);
-        return Result.success(result);
+        Page<ActionLog> resultPage = actionLogService.listLogs(page, params);
+        return Result.success(PageResult.of(resultPage));
     }
 
     @GetMapping("/statistics")
@@ -53,7 +54,7 @@ public class ActionLogController {
             @RequestParam(required = false) LocalDateTime startTime,
             @RequestParam(required = false) LocalDateTime endTime) {
         QueryWrapper<ActionLog> successWrapper = new QueryWrapper<>();
-        successWrapper.eq("execute_status", 1);
+        successWrapper.eq("result", 1);
         if (deviceId != null) {
             successWrapper.eq("device_id", deviceId);
         }
@@ -66,7 +67,7 @@ public class ActionLogController {
         Long successCount = actionLogRepository.selectCount(successWrapper);
 
         QueryWrapper<ActionLog> failWrapper = new QueryWrapper<>();
-        failWrapper.eq("execute_status", 0);
+        failWrapper.eq("result", 0);
         if (deviceId != null) {
             failWrapper.eq("device_id", deviceId);
         }
@@ -91,10 +92,10 @@ public class ActionLogController {
         Long totalCount = actionLogRepository.selectCount(totalWrapper);
 
         Map<String, Object> statistics = new HashMap<>();
+        statistics.put("totalCount", totalCount);
         statistics.put("successCount", successCount);
         statistics.put("failCount", failCount);
-        statistics.put("totalCount", totalCount);
-        statistics.put("successRate", totalCount > 0 ? (successCount * 100.0 / totalCount) : 0);
+        statistics.put("successRate", totalCount > 0 ? (successCount * 100.0 / totalCount) : 0.0);
 
         return Result.success(statistics);
     }

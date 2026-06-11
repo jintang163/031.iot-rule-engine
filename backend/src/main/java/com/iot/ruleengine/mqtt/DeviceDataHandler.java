@@ -2,11 +2,11 @@ package com.iot.ruleengine.mqtt;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iot.ruleengine.drools.DeviceData;
+import com.iot.ruleengine.drools.DroolsRuleEngine;
 import com.iot.ruleengine.entity.Device;
-import com.iot.ruleengine.entity.DeviceData;
 import com.iot.ruleengine.repository.DeviceDataRepository;
 import com.iot.ruleengine.repository.DeviceRepository;
-import com.iot.ruleengine.service.RuleEngineService;
 import com.iot.ruleengine.websocket.WebSocketService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,10 +14,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.MessagingException;
-import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -30,12 +31,13 @@ public class DeviceDataHandler implements MessageHandler {
     private static final Pattern TOPIC_PATTERN = Pattern.compile("iot/device/([^/]+)/(telemetry|status)");
     private static final String DEVICE_STATUS_KEY_PREFIX = "iot:device:status:";
     private static final String DEVICE_DATA_KEY_PREFIX = "iot:device:data:";
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
     private final DeviceRepository deviceRepository;
     private final DeviceDataRepository deviceDataRepository;
-    private final RuleEngineService ruleEngineService;
+    private final DroolsRuleEngine droolsRuleEngine;
     private final WebSocketService webSocketService;
 
     @Autowired
@@ -43,13 +45,13 @@ public class DeviceDataHandler implements MessageHandler {
                              StringRedisTemplate redisTemplate,
                              DeviceRepository deviceRepository,
                              DeviceDataRepository deviceDataRepository,
-                             RuleEngineService ruleEngineService,
+                             DroolsRuleEngine droolsRuleEngine,
                              WebSocketService webSocketService) {
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
         this.deviceRepository = deviceRepository;
         this.deviceDataRepository = deviceDataRepository;
-        this.ruleEngineService = ruleEngineService;
+        this.droolsRuleEngine = droolsRuleEngine;
         this.webSocketService = webSocketService;
     }
 
@@ -83,29 +85,49 @@ public class DeviceDataHandler implements MessageHandler {
     private void handleTelemetry(String deviceId, String payload) throws Exception {
         Map<String, Object> telemetry = objectMapper.readValue(payload, new TypeReference<Map<String, Object>>() {});
 
-        DeviceData deviceData = new DeviceData();
-        deviceData.setDeviceId(deviceId);
-        deviceData.setTelemetryData(payload);
-        deviceData.setTelemetry(telemetry);
-        deviceData.setStatus(1);
+        com.iot.ruleengine.entity.DeviceData entityData = new com.iot.ruleengine.entity.DeviceData();
+        entityData.setDeviceId(deviceId);
+        entityData.setTelemetryData(payload);
+        entityData.setTelemetry(telemetry);
+        entityData.setStatus(1);
+
+        DeviceData factData = new DeviceData(deviceId);
+        factData.setTime(LocalTime.now().format(TIME_FORMATTER));
 
         if (telemetry.containsKey("temperature")) {
-            deviceData.setTemperature(((Number) telemetry.get("temperature")).doubleValue());
+            Double temp = ((Number) telemetry.get("temperature")).doubleValue();
+            entityData.setTemperature(temp);
+            factData.setTemperature(temp);
         }
         if (telemetry.containsKey("humidity")) {
-            deviceData.setHumidity(((Number) telemetry.get("humidity")).doubleValue());
+            Double humidity = ((Number) telemetry.get("humidity")).doubleValue();
+            entityData.setHumidity(humidity);
+            factData.setHumidity(humidity);
+        }
+        if (telemetry.containsKey("presence")) {
+            Boolean presence = telemetry.get("presence") instanceof Boolean ?
+                    (Boolean) telemetry.get("presence") :
+                    "true".equalsIgnoreCase(String.valueOf(telemetry.get("presence")));
+            factData.setPresence(presence);
         }
         if (telemetry.containsKey("pressure")) {
-            deviceData.setPressure(((Number) telemetry.get("pressure")).doubleValue());
+            entityData.setPressure(((Number) telemetry.get("pressure")).doubleValue());
         }
         if (telemetry.containsKey("batteryLevel")) {
-            deviceData.setBatteryLevel(((Number) telemetry.get("batteryLevel")).intValue());
+            entityData.setBatteryLevel(((Number) telemetry.get("batteryLevel")).intValue());
+        }
+
+        for (Map.Entry<String, Object> entry : telemetry.entrySet()) {
+            factData.addAttribute(entry.getKey(), entry.getValue());
         }
 
         updateRedisDeviceData(deviceId, payload);
         updateDeviceOnlineStatus(deviceId);
-        saveDeviceData(deviceData);
-        ruleEngineService.executeRules(deviceData);
+        saveDeviceData(entityData);
+
+        log.debug("开始规则匹配, deviceId={}, temp={}, presence={}", deviceId, factData.getTemperature(), factData.getPresence());
+        droolsRuleEngine.executeRules(factData);
+
         webSocketService.sendDeviceData(deviceId, telemetry);
     }
 
@@ -119,11 +141,24 @@ public class DeviceDataHandler implements MessageHandler {
         updateDeviceOnlineStatus(deviceId);
         webSocketService.sendDeviceStatus(deviceId, onlineStatus);
 
-        DeviceData deviceData = new DeviceData();
-        deviceData.setDeviceId(deviceId);
-        deviceData.setDeviceStatus(payload);
-        deviceData.setStatus(onlineStatus);
-        ruleEngineService.executeRules(deviceData);
+        com.iot.ruleengine.entity.DeviceData entityData = new com.iot.ruleengine.entity.DeviceData();
+        entityData.setDeviceId(deviceId);
+        entityData.setDeviceStatus(payload);
+        entityData.setStatus(onlineStatus);
+
+        DeviceData factData = new DeviceData(deviceId);
+        factData.setTime(LocalTime.now().format(TIME_FORMATTER));
+        if (statusMap.containsKey("presence")) {
+            Boolean presence = statusMap.get("presence") instanceof Boolean ?
+                    (Boolean) statusMap.get("presence") :
+                    "true".equalsIgnoreCase(String.valueOf(statusMap.get("presence")));
+            factData.setPresence(presence);
+        }
+        for (Map.Entry<String, Object> entry : statusMap.entrySet()) {
+            factData.addAttribute(entry.getKey(), entry.getValue());
+        }
+
+        droolsRuleEngine.executeRules(factData);
     }
 
     private void updateRedisDeviceData(String deviceId, String payload) {
@@ -150,14 +185,19 @@ public class DeviceDataHandler implements MessageHandler {
 
     private void updateDeviceOnlineStatus(String deviceId) {
         try {
-            deviceRepository.updateOnlineStatus(deviceId, 1, LocalDateTime.now());
+            com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<Device> updateWrapper =
+                    new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
+            updateWrapper.eq("device_id", deviceId)
+                    .set("online", 1)
+                    .set("last_online_time", LocalDateTime.now());
+            deviceRepository.update(null, updateWrapper);
             log.debug("数据库设备在线状态更新成功, deviceId: {}", deviceId);
         } catch (Exception e) {
             log.error("数据库设备在线状态更新失败, deviceId: {}", deviceId, e);
         }
     }
 
-    private void saveDeviceData(DeviceData deviceData) {
+    private void saveDeviceData(com.iot.ruleengine.entity.DeviceData deviceData) {
         try {
             deviceDataRepository.insert(deviceData);
             log.debug("设备数据保存成功, deviceId: {}", deviceData.getDeviceId());

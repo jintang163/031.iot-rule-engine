@@ -1,8 +1,13 @@
 package com.iot.ruleengine.controller;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.iot.ruleengine.dto.PageResult;
 import com.iot.ruleengine.dto.Result;
 import com.iot.ruleengine.dto.RuleDTO;
+import com.iot.ruleengine.dto.RuleDetailVO;
 import com.iot.ruleengine.dto.RuleTestDTO;
 import com.iot.ruleengine.entity.Rule;
 import com.iot.ruleengine.service.RuleService;
@@ -10,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,15 +33,15 @@ public class RuleController {
     }
 
     @PostMapping
-    public Result<Rule> saveRule(@Valid @RequestBody RuleDTO ruleDTO) {
+    public Result<RuleDetailVO> saveRule(@Valid @RequestBody RuleDTO ruleDTO) {
         Rule rule = ruleService.saveRule(ruleDTO);
-        return Result.success(rule);
+        return Result.success(convertToDetailVO(rule));
     }
 
     @PutMapping
-    public Result<Rule> updateRule(@Valid @RequestBody RuleDTO ruleDTO) {
+    public Result<RuleDetailVO> updateRule(@Valid @RequestBody RuleDTO ruleDTO) {
         Rule rule = ruleService.updateRule(ruleDTO);
-        return Result.success(rule);
+        return Result.success(convertToDetailVO(rule));
     }
 
     @DeleteMapping("/{id}")
@@ -45,13 +51,13 @@ public class RuleController {
     }
 
     @GetMapping("/{id}")
-    public Result<Rule> getRuleById(@PathVariable Long id) {
+    public Result<RuleDetailVO> getRuleById(@PathVariable Long id) {
         Rule rule = ruleService.getRuleById(id);
-        return Result.success(rule);
+        return Result.success(convertToDetailVO(rule));
     }
 
     @GetMapping("/list")
-    public Result<Page<Rule>> listRules(
+    public Result<PageResult<Rule>> listRules(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String name,
@@ -63,7 +69,7 @@ public class RuleController {
         params.put("status", status);
         params.put("mutexGroup", mutexGroup);
         Page<Rule> result = ruleService.listRules(page, params);
-        return Result.success(result);
+        return Result.success(PageResult.of(result));
     }
 
     @PutMapping("/{id}/enable")
@@ -88,5 +94,56 @@ public class RuleController {
     public Result<Boolean> checkMutex(@RequestParam String mutexGroup) {
         boolean available = ruleService.checkMutex(mutexGroup);
         return Result.success(available);
+    }
+
+    private RuleDetailVO convertToDetailVO(Rule rule) {
+        RuleDetailVO vo = new RuleDetailVO();
+        vo.setId(rule.getId());
+        vo.setName(rule.getName());
+        vo.setDescription(rule.getDescription());
+        vo.setStatus(rule.getStatus());
+        vo.setPriority(rule.getPriority());
+        vo.setMutexGroup(rule.getMutexGroup());
+        vo.setRuleJson(rule.getRuleJson());
+        vo.setDrlContent(rule.getDrlContent());
+        vo.setCreateTime(rule.getCreateTime());
+        vo.setUpdateTime(rule.getUpdateTime());
+
+        Map<String, Object> ruleInfo = new HashMap<>();
+        ruleInfo.put("id", rule.getId());
+        ruleInfo.put("name", rule.getName());
+        ruleInfo.put("description", rule.getDescription());
+        ruleInfo.put("status", rule.getStatus());
+        ruleInfo.put("priority", rule.getPriority());
+        ruleInfo.put("mutexGroup", rule.getMutexGroup());
+        vo.setRuleInfo(ruleInfo);
+
+        List<Object> nodes = new ArrayList<>();
+        List<Object> edges = new ArrayList<>();
+
+        String ruleJsonStr = rule.getRuleJson();
+        if (ruleJsonStr != null && !ruleJsonStr.trim().isEmpty()) {
+            try {
+                JSONObject jsonObj = JSON.parseObject(ruleJsonStr);
+                if (jsonObj.containsKey("nodes")) {
+                    JSONArray nodesArray = jsonObj.getJSONArray("nodes");
+                    if (nodesArray != null) {
+                        nodes.addAll(nodesArray);
+                    }
+                }
+                if (jsonObj.containsKey("edges")) {
+                    JSONArray edgesArray = jsonObj.getJSONArray("edges");
+                    if (edgesArray != null) {
+                        edges.addAll(edgesArray);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        vo.setNodes(nodes);
+        vo.setEdges(edges);
+
+        return vo;
     }
 }

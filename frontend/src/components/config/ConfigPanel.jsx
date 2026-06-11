@@ -101,13 +101,18 @@ function RuleInfoPanel() {
   useEffect(() => {
     form.setFieldsValue({
       ...ruleInfo,
-      priority: ruleInfo.priority ?? 5
+      priority: ruleInfo.priority ?? 5,
+      status: typeof ruleInfo.status === 'number' ? ruleInfo.status : (ruleInfo.status === 'active' || ruleInfo.status === 'enabled' ? 1 : 0),
+      mutexGroup: ruleInfo.mutexGroup || ''
     })
   }, [ruleInfo.id])
 
   const handleValuesChange = (_, allValues) => {
     setRuleInfo(allValues)
   }
+
+  const statusTagColor = ruleInfo.status === 1 ? 'green' : 'default'
+  const statusTagText = ruleInfo.status === 1 ? '启用' : '停用(草稿)'
 
   return (
     <div style={{ padding: 12, height: '100%', overflowY: 'auto' }}>
@@ -127,7 +132,7 @@ function RuleInfoPanel() {
         <Form
           form={form}
           layout="vertical"
-          initialValues={{ ...ruleInfo, priority: 5 }}
+          initialValues={{ ...ruleInfo, priority: 5, status: 0, mutexGroup: '' }}
           onValuesChange={handleValuesChange}
         >
           <Form.Item
@@ -156,8 +161,8 @@ function RuleInfoPanel() {
             label={
               <Space>
                 <span>规则状态</span>
-                <Tag color={ruleInfo.status === 'active' ? 'green' : ruleInfo.status === 'inactive' ? 'red' : 'default'}>
-                  {ruleInfo.status === 'active' ? '启用' : ruleInfo.status === 'inactive' ? '停用' : '草稿'}
+                <Tag color={statusTagColor}>
+                  {statusTagText}
                 </Tag>
               </Space>
             }
@@ -165,22 +170,26 @@ function RuleInfoPanel() {
             style={{ marginBottom: 16 }}
           >
             <Radio.Group>
-              <Radio.Button value="draft">
+              <Radio.Button value={0}>
                 <Space size={4}>
-                  <BorderOutlined />草稿
+                  <BorderOutlined />停用(草稿)
                 </Space>
               </Radio.Button>
-              <Radio.Button value="active">
+              <Radio.Button value={1}>
                 <Space size={4}>
                   <PlayCircleOutlined />启用
                 </Space>
               </Radio.Button>
-              <Radio.Button value="inactive">
-                <Space size={4}>
-                  <StopOutlined />停用
-                </Space>
-              </Radio.Button>
             </Radio.Group>
+          </Form.Item>
+
+          <Form.Item
+            label="互斥规则组"
+            name="mutexGroup"
+            style={{ marginBottom: 16 }}
+            extra="同一互斥组中的规则在触发时只会执行优先级最高的一条"
+          >
+            <Input placeholder="例如：aircon_group，留空表示不参与互斥" size="middle" allowClear />
           </Form.Item>
 
           <Divider style={{ margin: '16px 0' }} />

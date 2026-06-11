@@ -45,25 +45,31 @@ public class DeviceCommandService {
 
     @Transactional(rollbackFor = Exception.class)
     public void sendCommand(String deviceId, String action, Map<String, Object> params) {
-        log.info("发送设备控制指令, deviceId: {}, action: {}, params: {}", deviceId, action, params);
+        sendCommand(deviceId, action, params, null, null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void sendCommand(String deviceId, String action, Map<String, Object> params, Long ruleId, String ruleName) {
+        log.info("发送设备控制指令, deviceId: {}, action: {}, params: {}, ruleId: {}, ruleName: {}",
+                deviceId, action, params, ruleId, ruleName);
 
         boolean isOnline = checkDeviceOnline(deviceId);
-        ActionLog actionLog = createActionLog(deviceId, action, params);
+        ActionLog actionLog = createActionLog(deviceId, action, params, ruleId, ruleName);
 
         try {
             String commandPayload = buildCommandPayload(deviceId, action, params);
             mqttClientService.publishCommand(deviceId, commandPayload);
 
-            actionLog.setExecuteStatus(1);
+            actionLog.setResult(1);
             actionLog.setExecuteTime(LocalDateTime.now());
             actionLogRepository.insert(actionLog);
 
-            log.info("设备控制指令发送成功, deviceId: {}, action: {}", deviceId, action);
+            log.info("设备控制指令发送成功, deviceId: {}, action: {}, ruleId: {}", deviceId, action, ruleId);
         } catch (Exception e) {
-            log.error("设备控制指令发送失败, deviceId: {}, action: {}", deviceId, action, e);
+            log.error("设备控制指令发送失败, deviceId: {}, action: {}, ruleId: {}", deviceId, action, ruleId, e);
 
-            actionLog.setExecuteStatus(0);
-            actionLog.setErrorMessage(e.getMessage());
+            actionLog.setResult(0);
+            actionLog.setErrorMsg(e.getMessage());
             actionLogRepository.insert(actionLog);
 
             if (!isOnline) {
@@ -77,7 +83,13 @@ public class DeviceCommandService {
     public void retryFailedCommands() {
         log.debug("开始重试失败的设备控制指令");
 
-        List<ActionLog> failedCommands = actionLogRepository.findFailedCommands();
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ActionLog> queryWrapper =
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        queryWrapper.eq("result", 0)
+                .lt("retry_count", MAX_RETRY_COUNT)
+                .orderByAsc("execute_time");
+
+        List<ActionLog> failedCommands = actionLogRepository.selectList(queryWrapper);
         if (failedCommands == null || failedCommands.isEmpty()) {
             return;
         }
@@ -101,17 +113,30 @@ public class DeviceCommandService {
                 actionLog.getRetryCount() + 1, MAX_RETRY_COUNT);
 
         try {
-            Map<String, Object> params = objectMapper.readValue(actionLog.getParams(),
+            Map<String, Object> params = objectMapper.readValue(actionLog.getActionParams(),
                     objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class));
 
             String commandPayload = buildCommandPayload(actionLog.getDeviceId(), actionLog.getActionType(), params);
             mqttClientService.publishCommand(actionLog.getDeviceId(), commandPayload);
 
-            actionLogRepository.updateExecuteStatus(actionLog.getId(), 1, null);
+            com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<ActionLog> updateWrapper =
+                    new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
+            updateWrapper.eq("id", actionLog.getId())
+                    .set("result", 1)
+                    .set("error_msg", null)
+                    .setSql("retry_count = retry_count + 1");
+            actionLogRepository.update(null, updateWrapper);
+
             log.info("设备指令重试成功, actionLogId: {}, deviceId: {}", actionLog.getId(), actionLog.getDeviceId());
         } catch (Exception e) {
             log.error("设备指令重试失败, actionLogId: {}, deviceId: {}", actionLog.getId(), actionLog.getDeviceId(), e);
-            actionLogRepository.updateExecuteStatus(actionLog.getId(), 0, e.getMessage());
+            com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<ActionLog> updateWrapper =
+                    new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
+            updateWrapper.eq("id", actionLog.getId())
+                    .set("result", 0)
+                    .set("error_msg", e.getMessage())
+                    .setSql("retry_count = retry_count + 1");
+            actionLogRepository.update(null, updateWrapper);
         }
     }
 
@@ -139,7 +164,7 @@ public class DeviceCommandService {
                     new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Device>()
                             .eq("device_id", deviceId));
             if (device != null) {
-                return device.getOnlineStatus() != null && device.getOnlineStatus() == 1;
+                return device.getOnline() != null && device.getOnline() == 1;
             }
         } catch (Exception e) {
             log.error("从数据库检查设备在线状态失败, deviceId: {}", deviceId, e);
@@ -149,17 +174,21 @@ public class DeviceCommandService {
     }
 
     private ActionLog createActionLog(String deviceId, String action, Map<String, Object> params) {
+        return createActionLog(deviceId, action, params, null, null);
+    }
+
+    private ActionLog createActionLog(String deviceId, String action, Map<String, Object> params, Long ruleId, String ruleName) {
         ActionLog actionLog = new ActionLog();
         actionLog.setDeviceId(deviceId);
         actionLog.setActionType(action);
+        actionLog.setRuleId(ruleId);
+        actionLog.setRuleName(ruleName);
         try {
-            actionLog.setActionContent(buildCommandPayload(deviceId, action, params));
-            actionLog.setParams(objectMapper.writeValueAsString(params));
+            actionLog.setActionParams(objectMapper.writeValueAsString(params));
         } catch (Exception e) {
-            actionLog.setActionContent(action);
-            actionLog.setParams("{}");
+            actionLog.setActionParams("{}");
         }
-        actionLog.setExecuteStatus(0);
+        actionLog.setResult(0);
         actionLog.setRetryCount(0);
         return actionLog;
     }

@@ -11,21 +11,44 @@ public class ActionLog {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    @TableField("rule_id")
+    private Long ruleId;
+
+    @TableField("rule_name")
+    private String ruleName;
+
+    @TableField("device_id")
     private String deviceId;
 
+    @TableField("action_type")
     private String actionType;
 
-    private String actionContent;
+    @TableField("action_params")
+    private String actionParams;
 
-    private String params;
+    @TableField("result")
+    private Integer result;
 
-    private Integer executeStatus;
-
+    @TableField("retry_count")
     private Integer retryCount;
 
+    @TableField("error_msg")
+    private String errorMsg;
+
+    @TableField("execute_time")
     private LocalDateTime executeTime;
 
+    @TableField(exist = false)
+    private String actionContent;
+
+    @TableField(exist = false)
+    private Integer executeStatus;
+
+    @TableField(exist = false)
     private String errorMessage;
+
+    @TableField(exist = false)
+    private String params;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

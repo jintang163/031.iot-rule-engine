@@ -2,6 +2,7 @@ package com.iot.ruleengine.drools;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.iot.ruleengine.entity.Rule;
+import com.iot.ruleengine.mqtt.DeviceCommandService;
 import com.iot.ruleengine.repository.RuleRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.kie.api.KieServices;
@@ -36,6 +37,11 @@ public class DroolsRuleEngine {
 
     private RuleRepository ruleRepository;
 
+    private RuleRepository ruleRepository2;
+
+    @Lazy
+    private DeviceCommandService deviceCommandService;
+
     private volatile KieSession kieSession;
 
     private final Map<String, String> dynamicRules = new ConcurrentHashMap<>();
@@ -54,6 +60,16 @@ public class DroolsRuleEngine {
     @Autowired
     public void setRuleRepository(@Lazy RuleRepository ruleRepository) {
         this.ruleRepository = ruleRepository;
+    }
+
+    @Autowired
+    public void setRuleRepository2(@Lazy RuleRepository ruleRepository2) {
+        this.ruleRepository2 = ruleRepository2;
+    }
+
+    @Autowired
+    public void setDeviceCommandService(@Lazy DeviceCommandService deviceCommandService) {
+        this.deviceCommandService = deviceCommandService;
     }
 
     @PostConstruct
@@ -121,12 +137,16 @@ public class DroolsRuleEngine {
     }
 
     public List<RuleExecutionResult> executeRules(DeviceData data) {
+        return executeRules(data, false);
+    }
+
+    public List<RuleExecutionResult> executeRules(DeviceData data, boolean dryRun) {
         if (data == null) {
             log.warn("执行规则时DeviceData为null");
             return Collections.emptyList();
         }
 
-        log.debug("开始执行规则匹配: deviceId={}", data.getDeviceId());
+        log.debug("开始执行规则匹配: deviceId={}, dryRun={}", data.getDeviceId(), dryRun);
 
         synchronized (lock) {
             if (kieSession == null) {
@@ -135,6 +155,10 @@ public class DroolsRuleEngine {
         }
 
         ruleExecutionListener.clearExecutionLogs();
+
+        if (data.getPendingActions() != null) {
+            data.getPendingActions().clear();
+        }
 
         List<RuleExecutionResult> results = new ArrayList<>();
 
@@ -145,17 +169,68 @@ public class DroolsRuleEngine {
             int firedCount = kieSession.fireAllRules();
             log.debug("触发规则数量: firedCount={}", firedCount);
 
+            List<DeviceData.ActionRequest> pendingActions = data.getPendingActions();
+            if (pendingActions != null && !pendingActions.isEmpty()) {
+                if (dryRun) {
+                    log.info("DryRun模式: 跳过{}个MQTT指令下发，仅返回动作列表", pendingActions.size());
+                } else if (deviceCommandService != null) {
+                    log.info("规则触发完成，开始执行{}个待落地动作", pendingActions.size());
+                for (DeviceData.ActionRequest actionRequest : pendingActions) {
+                    try {
+                        String ruleIdStr = actionRequest.getRuleId();
+                        String ruleName = actionRequest.getRuleName();
+                        Long ruleId = null;
+                        if (ruleIdStr != null && !"null".equalsIgnoreCase(ruleIdStr)) {
+                            try {
+                                ruleId = Long.parseLong(ruleIdStr);
+                            } catch (NumberFormatException e) {
+                                log.debug("ruleId格式转换失败: {}", ruleIdStr);
+                            }
+                        }
+                        String targetDeviceId = actionRequest.getTargetDeviceId() != null
+                                ? actionRequest.getTargetDeviceId() : data.getDeviceId();
+                        deviceCommandService.sendCommand(
+                                targetDeviceId,
+                                actionRequest.getActionType(),
+                                actionRequest.getParams(),
+                                ruleId,
+                                ruleName
+                        );
+                    } catch (Exception e) {
+                        log.error("动作落地失败: actionType={}, targetDeviceId={}, error={}",
+                                actionRequest.getActionType(), actionRequest.getTargetDeviceId(), e.getMessage(), e);
+                    }
+                }
+                log.info("待落地动作执行完成");
+                }
+            }
+
             List<RuleExecutionListener.ExecutionLog> logs = ruleExecutionListener.getExecutionLogs();
             for (RuleExecutionListener.ExecutionLog logItem : logs) {
                 RuleExecutionResult result = new RuleExecutionResult();
+                result.setRuleId(logItem.getRuleId());
                 result.setRuleName(logItem.getRuleName());
                 result.setPackageName(logItem.getPackageName());
                 result.setTriggerTime(logItem.getTriggerTime());
                 result.setDeviceId(data.getDeviceId());
+                List<DeviceData.ActionRequest> matchedActions = new ArrayList<>();
+                if (pendingActions != null) {
+                    for (DeviceData.ActionRequest action : pendingActions) {
+                        boolean ruleIdMatch = (logItem.getRuleId() == null && action.getRuleId() == null)
+                                || (logItem.getRuleId() != null && logItem.getRuleId().equals(action.getRuleId()));
+                        boolean ruleNameMatch = (logItem.getRuleName() == null && action.getRuleName() == null)
+                                || (logItem.getRuleName() != null && logItem.getRuleName().equals(action.getRuleName()));
+                        if (ruleIdMatch || ruleNameMatch) {
+                            matchedActions.add(action);
+                        }
+                    }
+                }
+                result.setTriggeredActions(matchedActions);
                 results.add(result);
             }
 
-            log.info("规则执行完成: deviceId={}, 触发规则数={}", data.getDeviceId(), results.size());
+            log.info("规则执行完成: deviceId={}, 触发规则数={}, 动作数={}",
+                    data.getDeviceId(), results.size(), pendingActions != null ? pendingActions.size() : 0);
         } catch (Exception e) {
             log.error("规则执行异常: deviceId={}, error={}", data.getDeviceId(), e.getMessage(), e);
         } finally {
@@ -329,10 +404,20 @@ public class DroolsRuleEngine {
     }
 
     public static class RuleExecutionResult {
+        private String ruleId;
         private String ruleName;
         private String packageName;
         private String triggerTime;
         private String deviceId;
+        private List<DeviceData.ActionRequest> triggeredActions;
+
+        public String getRuleId() {
+            return ruleId;
+        }
+
+        public void setRuleId(String ruleId) {
+            this.ruleId = ruleId;
+        }
 
         public String getRuleName() {
             return ruleName;
@@ -364,6 +449,14 @@ public class DroolsRuleEngine {
 
         public void setDeviceId(String deviceId) {
             this.deviceId = deviceId;
+        }
+
+        public List<DeviceData.ActionRequest> getTriggeredActions() {
+            return triggeredActions;
+        }
+
+        public void setTriggeredActions(List<DeviceData.ActionRequest> triggeredActions) {
+            this.triggeredActions = triggeredActions;
         }
     }
 }

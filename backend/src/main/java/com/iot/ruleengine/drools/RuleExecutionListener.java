@@ -49,10 +49,16 @@ public class RuleExecutionListener implements AgendaEventListener, Serializable 
     public void afterMatchFired(AfterMatchFiredEvent event) {
         String ruleName = event.getMatch().getRule().getName();
         String packageName = event.getMatch().getRule().getPackageName();
+        String ruleId = null;
+        Object ruleIdObj = event.getMatch().getRule().getMetaData().get("rule-id");
+        if (ruleIdObj != null) {
+            ruleId = ruleIdObj.toString();
+        }
         List<Object> facts = new ArrayList<>();
         event.getMatch().getObjects().forEach(facts::add);
 
         ExecutionLog executionLog = new ExecutionLog();
+        executionLog.setRuleId(ruleId);
         executionLog.setRuleName(ruleName);
         executionLog.setPackageName(packageName);
         executionLog.setFacts(facts);
@@ -116,6 +122,7 @@ public class RuleExecutionListener implements AgendaEventListener, Serializable 
     @Data
     public static class ExecutionLog implements Serializable {
         private static final long serialVersionUID = 1L;
+        private String ruleId;
         private String ruleName;
         private String packageName;
         private List<Object> facts;

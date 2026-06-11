@@ -47,8 +47,8 @@ public class ActionLogServiceImpl implements ActionLogService {
             if (params.containsKey("actionType") && StringUtils.hasText((String) params.get("actionType"))) {
                 queryWrapper.eq("action_type", params.get("actionType"));
             }
-            if (params.containsKey("executeStatus") && params.get("executeStatus") != null) {
-                queryWrapper.eq("execute_status", params.get("executeStatus"));
+            if (params.containsKey("result") && params.get("result") != null) {
+                queryWrapper.eq("result", params.get("result"));
             }
             if (params.containsKey("startTime") && params.get("startTime") != null) {
                 queryWrapper.ge("execute_time", params.get("startTime"));
@@ -66,7 +66,7 @@ public class ActionLogServiceImpl implements ActionLogService {
     @Override
     public List<ActionLog> listFailedLogsForRetry() {
         QueryWrapper<ActionLog> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("execute_status", 0)
+        queryWrapper.eq("result", 0)
                 .lt("retry_count", 3);
         queryWrapper.orderByAsc("create_time");
         return actionLogRepository.selectList(queryWrapper);

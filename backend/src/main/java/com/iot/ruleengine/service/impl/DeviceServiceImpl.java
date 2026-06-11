@@ -48,9 +48,9 @@ public class DeviceServiceImpl implements DeviceService {
 
         Device device = new Device();
         device.setDeviceId(deviceDTO.getDeviceId());
-        device.setDeviceName(deviceDTO.getName());
-        device.setDeviceType(deviceDTO.getType());
-        device.setOnlineStatus(deviceDTO.getOnline() != null ? deviceDTO.getOnline() : 0);
+        device.setName(deviceDTO.getName());
+        device.setType(deviceDTO.getType());
+        device.setOnline(deviceDTO.getOnline() != null ? deviceDTO.getOnline() : 0);
 
         deviceRepository.insert(device);
         return device;
@@ -65,13 +65,13 @@ public class DeviceServiceImpl implements DeviceService {
         }
 
         if (StringUtils.hasText(deviceDTO.getName())) {
-            existDevice.setDeviceName(deviceDTO.getName());
+            existDevice.setName(deviceDTO.getName());
         }
         if (StringUtils.hasText(deviceDTO.getType())) {
-            existDevice.setDeviceType(deviceDTO.getType());
+            existDevice.setType(deviceDTO.getType());
         }
         if (deviceDTO.getOnline() != null) {
-            existDevice.setOnlineStatus(deviceDTO.getOnline());
+            existDevice.setOnline(deviceDTO.getOnline());
         }
 
         deviceRepository.updateById(existDevice);
@@ -106,13 +106,13 @@ public class DeviceServiceImpl implements DeviceService {
                 queryWrapper.like("device_id", params.get("deviceId"));
             }
             if (params.containsKey("name") && StringUtils.hasText((String) params.get("name"))) {
-                queryWrapper.like("device_name", params.get("name"));
+                queryWrapper.like("name", params.get("name"));
             }
             if (params.containsKey("type") && StringUtils.hasText((String) params.get("type"))) {
-                queryWrapper.eq("device_type", params.get("type"));
+                queryWrapper.eq("type", params.get("type"));
             }
             if (params.containsKey("online") && params.get("online") != null) {
-                queryWrapper.eq("online_status", params.get("online"));
+                queryWrapper.eq("online", params.get("online"));
             }
         }
 
@@ -131,11 +131,11 @@ public class DeviceServiceImpl implements DeviceService {
         updateWrapper.eq("device_id", deviceId);
 
         if (status != null) {
-            if (status.containsKey("onlineStatus") && status.get("onlineStatus") != null) {
-                updateWrapper.set("online_status", status.get("onlineStatus"));
+            if (status.containsKey("online") && status.get("online") != null) {
+                updateWrapper.set("online", status.get("online"));
             }
-            if (status.containsKey("lastReportTime")) {
-                updateWrapper.set("last_report_time", LocalDateTime.now());
+            if (status.containsKey("last_online_time")) {
+                updateWrapper.set("last_online_time", LocalDateTime.now());
             }
             if (status.containsKey("firmwareVersion") && status.get("firmwareVersion") != null) {
                 updateWrapper.set("firmware_version", status.get("firmwareVersion"));
@@ -173,8 +173,8 @@ public class DeviceServiceImpl implements DeviceService {
     @Override
     public List<Device> listOnlineDevices() {
         QueryWrapper<Device> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("online_status", 1);
-        queryWrapper.orderByDesc("last_report_time");
+        queryWrapper.eq("online", 1);
+        queryWrapper.orderByDesc("last_online_time");
         return deviceRepository.selectList(queryWrapper);
     }
 }

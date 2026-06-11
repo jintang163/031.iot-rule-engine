@@ -21,7 +21,17 @@ request.interceptors.response.use(
     const res = response.data
     if (res && res.code !== undefined) {
       if (res.code === 200) {
-        return res.data
+        const data = res.data
+        if (data && data.records !== undefined && data.total !== undefined) {
+          return {
+            records: data.records,
+            total: data.total,
+            current: data.current || 1,
+            size: data.size || data.pageSize || 10,
+            pages: data.pages || Math.ceil(data.total / (data.size || data.pageSize || 10))
+          }
+        }
+        return data
       } else {
         message.error(res.msg || '请求失败')
         return Promise.reject(new Error(res.msg || '请求失败'))

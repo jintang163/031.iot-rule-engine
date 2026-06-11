@@ -11,22 +11,40 @@ public class Device {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    @TableField("device_id")
     private String deviceId;
 
-    private String deviceName;
+    @TableField("name")
+    private String name;
 
-    private String deviceType;
+    @TableField("type")
+    private String type;
 
+    @TableField("actions")
+    private String actions;
+
+    @TableField("status")
+    private String status;
+
+    @TableField("online")
+    private Integer online;
+
+    @TableField("location")
+    private String location;
+
+    @TableField("last_online_time")
+    private LocalDateTime lastOnlineTime;
+
+    @TableField(exist = false)
     private String productKey;
 
-    private Integer onlineStatus;
-
-    private LocalDateTime lastReportTime;
-
+    @TableField(exist = false)
     private String firmwareVersion;
 
+    @TableField(exist = false)
     private String ipAddress;
 
+    @TableLogic
     private Integer deleted;
 
     @TableField(fill = FieldFill.INSERT)

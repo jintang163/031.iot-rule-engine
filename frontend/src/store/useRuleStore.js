@@ -11,8 +11,9 @@ const useRuleStore = create((set, get) => ({
     id: null,
     name: '',
     description: '',
-    status: 'draft',
-    priority: 5
+    status: 0,
+    priority: 5,
+    mutexGroup: ''
   },
 
   past: [],
@@ -153,22 +154,51 @@ const useRuleStore = create((set, get) => ({
     })
   },
 
-  loadRule: (ruleData) => set({
-    ruleInfo: {
-      id: ruleData.id || null,
-      name: ruleData.name || '',
-      description: ruleData.description || '',
-      status: ruleData.status || 'draft',
-      priority: ruleData.priority || 5
-    },
-    nodes: ruleData.nodes || [],
-    edges: ruleData.edges || [],
-    past: [],
-    future: [],
-    selectedNode: null,
-    selectedEdge: null,
-    isDirty: false
-  }),
+  loadRule: (ruleData) => {
+    let parsedNodes = ruleData.nodes || []
+    let parsedEdges = ruleData.edges || []
+
+    if (ruleData.ruleJson && typeof ruleData.ruleJson === 'string') {
+      try {
+        const parsed = JSON.parse(ruleData.ruleJson)
+        parsedNodes = parsed.nodes || []
+        parsedEdges = parsed.edges || []
+      } catch (e) {
+        console.error('解析 ruleJson 失败:', e)
+      }
+    }
+
+    set({
+      ruleInfo: {
+        id: ruleData.id || null,
+        name: ruleData.name || '',
+        description: ruleData.description || '',
+        status: typeof ruleData.status === 'number' ? ruleData.status : (ruleData.status === 'active' || ruleData.status === 'enabled' ? 1 : 0),
+        priority: ruleData.priority || 5,
+        mutexGroup: ruleData.mutexGroup || ''
+      },
+      nodes: parsedNodes,
+      edges: parsedEdges,
+      past: [],
+      future: [],
+      selectedNode: null,
+      selectedEdge: null,
+      isDirty: false
+    })
+  },
+
+  exportRuleData: () => {
+    const { ruleInfo, nodes, edges } = get()
+    return {
+      id: ruleInfo.id || null,
+      name: ruleInfo.name,
+      description: ruleInfo.description,
+      status: ruleInfo.status,
+      priority: ruleInfo.priority,
+      mutexGroup: ruleInfo.mutexGroup || '',
+      ruleJson: JSON.stringify({ nodes, edges, version: '1.0' })
+    }
+  },
 
   exportRuleJson: () => {
     const { ruleInfo, nodes, edges } = get()
@@ -178,6 +208,7 @@ const useRuleStore = create((set, get) => ({
       description: ruleInfo.description,
       status: ruleInfo.status,
       priority: ruleInfo.priority,
+      mutexGroup: ruleInfo.mutexGroup || '',
       nodes,
       edges,
       version: '1.0',

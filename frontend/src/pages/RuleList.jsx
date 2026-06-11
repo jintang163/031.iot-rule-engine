@@ -10,8 +10,8 @@ import { formatDate } from '../utils'
 const { Option } = Select
 
 const statusMap = {
-  enabled: { color: 'success', text: '启用' },
-  disabled: { color: 'default', text: '停用' }
+  1: { color: 'success', text: '启用' },
+  0: { color: 'default', text: '停用' }
 }
 
 function RuleList() {
@@ -40,13 +40,15 @@ function RuleList() {
         page: pagination.current,
         size: pagination.pageSize,
         name: searchName || undefined,
-        status: searchStatus || undefined
+        status: searchStatus !== null && searchStatus !== undefined ? searchStatus : undefined
       }
       const res = await getRuleList(params)
-      setData(res?.records || res?.list || [])
+      setData(res?.records || [])
       setPagination((prev) => ({
         ...prev,
-        total: res?.total || 0
+        total: res?.total || 0,
+        current: res?.current || prev.current,
+        pageSize: res?.size || prev.pageSize
       }))
     } catch (error) {
       console.error('获取规则列表失败:', error)
@@ -119,7 +121,8 @@ function RuleList() {
   const handleToggleStatus = async (record) => {
     try {
       setLoading(true)
-      if (record.status === 'enabled') {
+      const currentStatus = typeof record.status === 'number' ? record.status : (record.status === 'enabled' || record.status === 'active' ? 1 : 0)
+      if (currentStatus === 1) {
         await disableRule(record.id)
         message.success('已停用')
       } else {
@@ -190,7 +193,8 @@ function RuleList() {
       key: 'status',
       width: 100,
       render: (status) => {
-        const config = statusMap[status] || { color: 'default', text: status }
+        const numericStatus = typeof status === 'number' ? status : (status === 'enabled' || status === 'active' ? 1 : 0)
+        const config = statusMap[numericStatus] || { color: 'default', text: String(status) }
         return <Tag color={config.color}>{config.text}</Tag>
       }
     },
@@ -221,15 +225,18 @@ function RuleList() {
           <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(record)}>
             复制
           </Button>
-          {record.status === 'enabled' ? (
-            <Button type="link" size="small" icon={<PauseCircleOutlined />} onClick={() => handleToggleStatus(record)}>
-              停用
-            </Button>
-          ) : (
-            <Button type="link" size="small" icon={<PlayCircleOutlined />} onClick={() => handleToggleStatus(record)}>
-              启用
-            </Button>
-          )}
+          {(() => {
+            const currentStatus = typeof record.status === 'number' ? record.status : (record.status === 'enabled' || record.status === 'active' ? 1 : 0)
+            return currentStatus === 1 ? (
+              <Button type="link" size="small" icon={<PauseCircleOutlined />} onClick={() => handleToggleStatus(record)}>
+                停用
+              </Button>
+            ) : (
+              <Button type="link" size="small" icon={<PlayCircleOutlined />} onClick={() => handleToggleStatus(record)}>
+                启用
+              </Button>
+            )
+          })()}
           <Popconfirm
             title="确认删除该规则？"
             description="删除后无法恢复"
@@ -276,8 +283,8 @@ function RuleList() {
               style={{ width: 140 }}
               allowClear
             >
-              <Option value="enabled">启用</Option>
-              <Option value="disabled">停用</Option>
+              <Option value={1}>启用</Option>
+              <Option value={0}>停用</Option>
             </Select>
             <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
               搜索

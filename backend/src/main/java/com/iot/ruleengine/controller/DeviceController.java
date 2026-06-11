@@ -2,6 +2,7 @@ package com.iot.ruleengine.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.iot.ruleengine.dto.DeviceDTO;
+import com.iot.ruleengine.dto.PageResult;
 import com.iot.ruleengine.dto.Result;
 import com.iot.ruleengine.entity.Device;
 import com.iot.ruleengine.service.DeviceService;
@@ -50,7 +51,7 @@ public class DeviceController {
     }
 
     @GetMapping("/list")
-    public Result<Page<Device>> listDevices(
+    public Result<PageResult<Device>> listDevices(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String deviceId,
@@ -64,11 +65,11 @@ public class DeviceController {
         params.put("type", type);
         params.put("online", online);
         Page<Device> result = deviceService.listDevices(page, params);
-        return Result.success(result);
+        return Result.success(PageResult.of(result));
     }
 
     @PutMapping("/{deviceId}/control")
-    public Result<Void> controlDevice(
+    public Result<Map<String, Object>> controlDevice(
             @PathVariable String deviceId,
             @RequestBody Map<String, Object> body) {
         String action = (String) body.get("action");
@@ -77,8 +78,22 @@ public class DeviceController {
         if (params == null) {
             params = new HashMap<>();
         }
-        deviceService.controlDevice(deviceId, action, params);
-        return Result.success();
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("deviceId", deviceId);
+        result.put("action", action);
+        result.put("params", params);
+
+        try {
+            deviceService.controlDevice(deviceId, action, params);
+            result.put("success", true);
+            result.put("message", "指令发送成功");
+            return Result.success(result, "指令发送成功");
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", "指令发送失败: " + e.getMessage());
+            return Result.fail("指令发送失败: " + e.getMessage());
+        }
     }
 
     @GetMapping("/online")

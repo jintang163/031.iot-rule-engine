@@ -222,10 +222,10 @@ public class RuleServiceImpl implements RuleService {
 
     @Override
     public List<Map<String, Object>> testRule(RuleTestDTO ruleTestDTO) {
-        DeviceData deviceData;
+        com.iot.ruleengine.drools.DeviceData deviceData;
         try {
             JSONObject jsonObject = JSON.parseObject(ruleTestDTO.getDeviceData());
-            deviceData = new DeviceData();
+            deviceData = new com.iot.ruleengine.drools.DeviceData();
             if (jsonObject.containsKey("deviceId")) {
                 deviceData.setDeviceId(jsonObject.getString("deviceId"));
             }
@@ -274,25 +274,40 @@ public class RuleServiceImpl implements RuleService {
             }
         }
 
-        List<DroolsRuleEngine.RuleExecutionResult> results = droolsRuleEngine.executeRules(deviceData);
+        List<DroolsRuleEngine.RuleExecutionResult> results = droolsRuleEngine.executeRules(deviceData, true);
 
         List<Map<String, Object>> triggeredActions = new ArrayList<>();
-        Map<String, Object> attributes = deviceData.getAttributes();
-        for (Map.Entry<String, Object> entry : attributes.entrySet()) {
-            String key = entry.getKey();
-            if (key.endsWith("_status") || key.endsWith("_temperature") || key.endsWith("_mode")
-                    || key.endsWith("_brightness") || key.endsWith("_color")
-                    || key.startsWith("alert_")) {
-                Map<String, Object> action = new HashMap<>();
-                action.put("key", key);
-                action.put("value", entry.getValue());
-                triggeredActions.add(action);
+        List<DeviceData.ActionRequest> pendingActions = deviceData.getPendingActions();
+        if (pendingActions != null && !pendingActions.isEmpty()) {
+            for (DeviceData.ActionRequest action : pendingActions) {
+                Map<String, Object> actionMap = new HashMap<>();
+                actionMap.put("actionType", action.getActionType());
+                actionMap.put("params", action.getParams());
+                actionMap.put("targetDeviceId", action.getTargetDeviceId() != null
+                        ? action.getTargetDeviceId() : deviceData.getDeviceId());
+                actionMap.put("ruleId", action.getRuleId());
+                actionMap.put("ruleName", action.getRuleName());
+                triggeredActions.add(actionMap);
             }
         }
 
+        List<Map<String, Object>> triggeredRules = new ArrayList<>();
+        for (DroolsRuleEngine.RuleExecutionResult result : results) {
+            Map<String, Object> ruleMap = new HashMap<>();
+            ruleMap.put("ruleId", result.getRuleId());
+            ruleMap.put("ruleName", result.getRuleName());
+            ruleMap.put("packageName", result.getPackageName());
+            ruleMap.put("triggerTime", result.getTriggerTime());
+            ruleMap.put("deviceId", result.getDeviceId());
+            triggeredRules.add(ruleMap);
+        }
+
         Map<String, Object> executionInfo = new HashMap<>();
-        executionInfo.put("triggeredRules", results);
+        executionInfo.put("triggeredRules", triggeredRules);
         executionInfo.put("triggeredActions", triggeredActions);
+        executionInfo.put("matchedRuleCount", triggeredRules.size());
+        executionInfo.put("actionCount", triggeredActions.size());
+        executionInfo.put("deviceData", JSON.toJSON(deviceData));
 
         List<Map<String, Object>> response = new ArrayList<>();
         response.add(executionInfo);

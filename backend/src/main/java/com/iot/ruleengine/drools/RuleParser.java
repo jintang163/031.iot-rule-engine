@@ -333,10 +333,6 @@ public class RuleParser {
             sb.append(buildSingleAction(actionNode));
         }
 
-        if (sb.length() == 0) {
-            sb.append("        System.out.println(\"规则触发，无定义动作\");\n");
-        }
-
         return sb.toString();
     }
 
@@ -349,106 +345,281 @@ public class RuleParser {
 
         StringBuilder sb = new StringBuilder();
         JSONObject params = data.getJSONObject("params");
+        String targetDeviceId = data.containsKey("deviceId") ? data.getString("deviceId") : null;
 
         sb.append("        ");
 
         switch (actionType) {
             case "turn_on_aircon":
-                sb.append(buildTurnOnAircon(params));
+                sb.append(buildTurnOnAircon(params, targetDeviceId));
                 break;
             case "turn_off_aircon":
-                sb.append(buildTurnOffAircon());
+                sb.append(buildTurnOffAircon(targetDeviceId));
                 break;
             case "turn_on_light":
-                sb.append(buildTurnOnLight(params));
+                sb.append(buildTurnOnLight(params, targetDeviceId));
                 break;
             case "turn_off_light":
-                sb.append(buildTurnOffLight());
+                sb.append(buildTurnOffLight(targetDeviceId));
                 break;
             case "send_alert":
-                sb.append(buildSendAlert(params));
+                sb.append(buildSendAlert(params, targetDeviceId));
                 break;
             default:
-                sb.append("System.out.println(\"未知动作: ").append(actionType).append("\");\n");
+                sb.append(buildGenericAction(actionType, params, targetDeviceId));
         }
 
         return sb.toString();
     }
 
-    private String buildTurnOnAircon(JSONObject params) {
-        double temp = 26.0;
-        String mode = "cool";
+    private String buildGenericAction(String actionType, JSONObject params, String targetDeviceId) {
+        StringBuilder sb = new StringBuilder();
+        Map<String, Object> paramMap = new HashMap<>();
+        if (params != null) {
+            for (String key : params.keySet()) {
+                paramMap.put(key, params.get(key));
+            }
+        }
+        String mapStr = buildMapLiteral(paramMap);
+        String ruleIdExpr = "String.valueOf(drools.getRule().getMetaData().get(\"rule-id\"))";
+        String ruleNameExpr = "drools.getRule().getName()";
+        if (targetDeviceId != null && !targetDeviceId.trim().isEmpty()) {
+            sb.append("$data.addPendingAction(\"").append(actionType).append("\", ")
+                    .append(mapStr).append(", \"").append(targetDeviceId).append("\", ")
+                    .append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        } else {
+            sb.append("$data.addPendingAction(\"").append(actionType).append("\", ")
+                    .append(mapStr).append(", null, ")
+                    .append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        }
+        return sb.toString();
+    }
+
+    private String buildMapLiteral(Map<String, Object> params) {
+        if (params == null || params.isEmpty()) {
+            return "java.util.Map.of()";
+        }
+        if (params.size() <= 10) {
+            StringBuilder sb = new StringBuilder("java.util.Map.of(");
+            boolean first = true;
+            for (Map.Entry<String, Object> entry : params.entrySet()) {
+                if (!first) sb.append(", ");
+                sb.append("\"").append(entry.getKey()).append("\", ");
+                Object value = entry.getValue();
+                if (value instanceof String) {
+                    sb.append("\"").append(value).append("\"");
+                } else if (value instanceof Number) {
+                    if (value instanceof Double || value instanceof Float) {
+                        sb.append(((Number) value).doubleValue());
+                    } else {
+                        sb.append(((Number) value).intValue());
+                    }
+                } else if (value instanceof Boolean) {
+                    sb.append(value);
+                } else {
+                    sb.append("\"").append(value != null ? value.toString() : "").append("\"");
+                }
+                first = false;
+            }
+            sb.append(")");
+            return sb.toString();
+        } else {
+            StringBuilder sb = new StringBuilder("new java.util.HashMap<>(){{");
+            for (Map.Entry<String, Object> entry : params.entrySet()) {
+                sb.append("put(\"").append(entry.getKey()).append("\", ");
+                Object value = entry.getValue();
+                if (value instanceof String) {
+                    sb.append("\"").append(value).append("\"");
+                } else if (value instanceof Number) {
+                    if (value instanceof Double || value instanceof Float) {
+                        sb.append(((Number) value).doubleValue());
+                    } else {
+                        sb.append(((Number) value).intValue());
+                    }
+                } else if (value instanceof Boolean) {
+                    sb.append(value);
+                } else {
+                    sb.append("\"").append(value != null ? value.toString() : "").append("\"");
+                }
+                sb.append("); ");
+            }
+            sb.append("}}");
+            return sb.toString();
+        }
+    }
+
+    private String buildTurnOnAircon(JSONObject params, String targetDeviceId) {
+        Map<String, Object> paramMap = new HashMap<>();
+        paramMap.put("temperature", 26.0);
+        paramMap.put("mode", "cool");
         if (params != null) {
             if (params.containsKey("temperature")) {
-                temp = params.getDoubleValue("temperature");
+                paramMap.put("temperature", params.getDoubleValue("temperature"));
             }
             if (params.containsKey("mode")) {
-                mode = params.getString("mode");
+                paramMap.put("mode", params.getString("mode"));
             }
         }
+        String mapStr = buildMapLiteral(paramMap);
+        String ruleIdExpr = "String.valueOf(drools.getRule().getMetaData().get(\"rule-id\"))";
+        String ruleNameExpr = "drools.getRule().getName()";
         StringBuilder sb = new StringBuilder();
-        sb.append("System.out.println(\"[动作] 开启空调 - 设备: \" + $data.getDeviceId()");
-        sb.append(" + \", 温度: ").append(temp).append("°C, 模式: ").append(mode).append("\");\n");
-        sb.append("        $data.addAttribute(\"aircon_status\", \"on\");\n");
-        sb.append("        $data.addAttribute(\"aircon_temperature\", ").append(temp).append(");\n");
-        sb.append("        $data.addAttribute(\"aircon_mode\", \"").append(mode).append("\");\n");
+        if (targetDeviceId != null && !targetDeviceId.trim().isEmpty()) {
+            sb.append("$data.addPendingAction(\"turn_on_aircon\", ").append(mapStr)
+                    .append(", \"").append(targetDeviceId).append("\", ")
+                    .append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        } else {
+            sb.append("$data.addPendingAction(\"turn_on_aircon\", ").append(mapStr)
+                    .append(", null, ").append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        }
         return sb.toString();
     }
 
-    private String buildTurnOffAircon() {
+    private String buildTurnOffAircon(String targetDeviceId) {
+        String mapStr = "java.util.Map.of()";
+        String ruleIdExpr = "String.valueOf(drools.getRule().getMetaData().get(\"rule-id\"))";
+        String ruleNameExpr = "drools.getRule().getName()";
         StringBuilder sb = new StringBuilder();
-        sb.append("System.out.println(\"[动作] 关闭空调 - 设备: \" + $data.getDeviceId());\n");
-        sb.append("        $data.addAttribute(\"aircon_status\", \"off\");\n");
+        if (targetDeviceId != null && !targetDeviceId.trim().isEmpty()) {
+            sb.append("$data.addPendingAction(\"turn_off_aircon\", ").append(mapStr)
+                    .append(", \"").append(targetDeviceId).append("\", ")
+                    .append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        } else {
+            sb.append("$data.addPendingAction(\"turn_off_aircon\", ").append(mapStr)
+                    .append(", null, ").append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        }
         return sb.toString();
     }
 
-    private String buildTurnOnLight(JSONObject params) {
-        int brightness = 100;
-        String color = "white";
+    private String buildTurnOnLight(JSONObject params, String targetDeviceId) {
+        Map<String, Object> paramMap = new HashMap<>();
+        paramMap.put("brightness", 100);
+        paramMap.put("color", "white");
         if (params != null) {
             if (params.containsKey("brightness")) {
-                brightness = params.getIntValue("brightness");
+                paramMap.put("brightness", params.getIntValue("brightness"));
             }
             if (params.containsKey("color")) {
-                color = params.getString("color");
+                paramMap.put("color", params.getString("color"));
             }
         }
+        String mapStr = buildMapLiteral(paramMap);
+        String ruleIdExpr = "String.valueOf(drools.getRule().getMetaData().get(\"rule-id\"))";
+        String ruleNameExpr = "drools.getRule().getName()";
         StringBuilder sb = new StringBuilder();
-        sb.append("System.out.println(\"[动作] 开启灯光 - 设备: \" + $data.getDeviceId()");
-        sb.append(" + \", 亮度: ").append(brightness).append("%, 颜色: ").append(color).append("\");\n");
-        sb.append("        $data.addAttribute(\"light_status\", \"on\");\n");
-        sb.append("        $data.addAttribute(\"light_brightness\", ").append(brightness).append(");\n");
-        sb.append("        $data.addAttribute(\"light_color\", \"").append(color).append("\");\n");
+        if (targetDeviceId != null && !targetDeviceId.trim().isEmpty()) {
+            sb.append("$data.addPendingAction(\"turn_on_light\", ").append(mapStr)
+                    .append(", \"").append(targetDeviceId).append("\", ")
+                    .append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        } else {
+            sb.append("$data.addPendingAction(\"turn_on_light\", ").append(mapStr)
+                    .append(", null, ").append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        }
         return sb.toString();
     }
 
-    private String buildTurnOffLight() {
+    private String buildTurnOffLight(String targetDeviceId) {
+        String mapStr = "java.util.Map.of()";
+        String ruleIdExpr = "String.valueOf(drools.getRule().getMetaData().get(\"rule-id\"))";
+        String ruleNameExpr = "drools.getRule().getName()";
         StringBuilder sb = new StringBuilder();
-        sb.append("System.out.println(\"[动作] 关闭灯光 - 设备: \" + $data.getDeviceId());\n");
-        sb.append("        $data.addAttribute(\"light_status\", \"off\");\n");
+        if (targetDeviceId != null && !targetDeviceId.trim().isEmpty()) {
+            sb.append("$data.addPendingAction(\"turn_off_light\", ").append(mapStr)
+                    .append(", \"").append(targetDeviceId).append("\", ")
+                    .append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        } else {
+            sb.append("$data.addPendingAction(\"turn_off_light\", ").append(mapStr)
+                    .append(", null, ").append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        }
         return sb.toString();
     }
 
-    private String buildSendAlert(JSONObject params) {
-        String level = "info";
-        String message = "规则触发告警";
+    private String buildSendAlert(JSONObject params, String targetDeviceId) {
+        Map<String, Object> paramMap = new HashMap<>();
+        paramMap.put("level", "info");
+        paramMap.put("message", "规则触发告警");
+        paramMap.put("deviceId", "$data.getDeviceId()");
+        paramMap.put("temperature", "$data.getTemperature()");
+        paramMap.put("humidity", "$data.getHumidity()");
+        paramMap.put("presence", "$data.getPresence()");
         if (params != null) {
             if (params.containsKey("level")) {
-                level = params.getString("level");
+                paramMap.put("level", params.getString("level"));
             }
             if (params.containsKey("message")) {
-                message = params.getString("message");
+                paramMap.put("message", params.getString("message"));
             }
         }
+        String mapStr = buildAlertMapLiteral(paramMap);
+        String ruleIdExpr = "String.valueOf(drools.getRule().getMetaData().get(\"rule-id\"))";
+        String ruleNameExpr = "drools.getRule().getName()";
         StringBuilder sb = new StringBuilder();
-        sb.append("System.out.println(\"[告警][").append(level).append("] ").append(message);
-        sb.append(" - 设备: \" + $data.getDeviceId()");
-        sb.append(" + \", 温度: \" + $data.getTemperature()");
-        sb.append(" + \", 湿度: \" + $data.getHumidity()");
-        sb.append(" + \", 人体存在: \" + $data.getPresence());\n");
-        sb.append("        $data.addAttribute(\"alert_level\", \"").append(level).append("\");\n");
-        sb.append("        $data.addAttribute(\"alert_message\", \"").append(message).append("\");\n");
+        if (targetDeviceId != null && !targetDeviceId.trim().isEmpty()) {
+            sb.append("$data.addPendingAction(\"send_alert\", ").append(mapStr)
+                    .append(", \"").append(targetDeviceId).append("\", ")
+                    .append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        } else {
+            sb.append("$data.addPendingAction(\"send_alert\", ").append(mapStr)
+                    .append(", null, ").append(ruleIdExpr).append(", ").append(ruleNameExpr).append(");\n");
+        }
         return sb.toString();
+    }
+
+    private String buildAlertMapLiteral(Map<String, Object> params) {
+        if (params == null || params.isEmpty()) {
+            return "java.util.Map.of()";
+        }
+        if (params.size() <= 10) {
+            StringBuilder sb = new StringBuilder("java.util.Map.of(");
+            boolean first = true;
+            for (Map.Entry<String, Object> entry : params.entrySet()) {
+                if (!first) sb.append(", ");
+                sb.append("\"").append(entry.getKey()).append("\", ");
+                Object value = entry.getValue();
+                if (value instanceof String && ((String) value).startsWith("$data.")) {
+                    sb.append(value);
+                } else if (value instanceof String) {
+                    sb.append("\"").append(value).append("\"");
+                } else if (value instanceof Number) {
+                    if (value instanceof Double || value instanceof Float) {
+                        sb.append(((Number) value).doubleValue());
+                    } else {
+                        sb.append(((Number) value).intValue());
+                    }
+                } else if (value instanceof Boolean) {
+                    sb.append(value);
+                } else {
+                    sb.append("\"").append(value != null ? value.toString() : "").append("\"");
+                }
+                first = false;
+            }
+            sb.append(")");
+            return sb.toString();
+        } else {
+            StringBuilder sb = new StringBuilder("new java.util.HashMap<>(){{");
+            for (Map.Entry<String, Object> entry : params.entrySet()) {
+                sb.append("put(\"").append(entry.getKey()).append("\", ");
+                Object value = entry.getValue();
+                if (value instanceof String && ((String) value).startsWith("$data.")) {
+                    sb.append(value);
+                } else if (value instanceof String) {
+                    sb.append("\"").append(value).append("\"");
+                } else if (value instanceof Number) {
+                    if (value instanceof Double || value instanceof Float) {
+                        sb.append(((Number) value).doubleValue());
+                    } else {
+                        sb.append(((Number) value).intValue());
+                    }
+                } else if (value instanceof Boolean) {
+                    sb.append(value);
+                } else {
+                    sb.append("\"").append(value != null ? value.toString() : "").append("\"");
+                }
+                sb.append("); ");
+            }
+            sb.append("}}");
+            return sb.toString();
+        }
     }
 
     @Data

@@ -19,11 +19,11 @@ const { Option } = Select
 const { Meta } = Card
 
 const deviceTypeMap = {
-  air_conditioner: { label: '空调', color: 'blue', icon: '❄️' },
+  aircon: { label: '空调', color: 'blue', icon: '❄️' },
   light: { label: '灯光', color: 'gold', icon: '💡' },
-  temperature_sensor: { label: '温感', color: 'green', icon: '🌡️' },
-  humidity_sensor: { label: '湿感', color: 'cyan', icon: '💧' },
-  human_sensor: { label: '人体', color: 'purple', icon: '👤' }
+  sensor_temp: { label: '温感', color: 'green', icon: '🌡️' },
+  sensor_humidity: { label: '湿感', color: 'cyan', icon: '💧' },
+  sensor_presence: { label: '人体', color: 'purple', icon: '👤' }
 }
 
 const actionOptions = [
@@ -64,12 +64,12 @@ function DeviceManager() {
       const list = res?.records || res?.list || res || []
       setData(list)
 
-      const onlineList = list.filter((d) => d.online || d.status === 'online')
+      const onlineList = list.filter((d) => d.online === 1 || d.online === true)
       const sensorList = list.filter((d) =>
-        ['temperature_sensor', 'humidity_sensor', 'human_sensor'].includes(d.type)
+        ['sensor_temp', 'sensor_humidity', 'sensor_presence'].includes(d.type)
       )
       const actuatorList = list.filter((d) =>
-        ['air_conditioner', 'light'].includes(d.type)
+        ['aircon', 'light'].includes(d.type)
       )
       setStats({
         total: list.length,

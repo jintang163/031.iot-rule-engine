@@ -1,36 +1,46 @@
 package rules;
 
-import com.iot.ruleengine.entity.DeviceData;
+import com.iot.ruleengine.drools.DeviceData;
+import com.iot.ruleengine.util.SpringContextUtil;
+import com.iot.ruleengine.mqtt.DeviceCommandService;
+import java.util.Map;
+import java.util.HashMap;
+
+rule "高温无人房间自动开空调"
+    rule-id "sample-001"
+    salience 100
+    when
+        $data : DeviceData(
+            temperature != null && temperature > 30.0,
+            presence != null && presence == false
+        )
+    then
+        System.out.println("[规则触发] 温度>30°C且无人，自动开启空调 - 设备: " + $data.getDeviceId()
+            + ", 温度: " + $data.getTemperature() + "°C, 无人: " + $data.getPresence());
+        Map<String, Object> actionParams = new HashMap<>();
+        actionParams.put("temperature", 26.0);
+        actionParams.put("mode", "cool");
+        DeviceCommandService commandService = SpringContextUtil.getBean(DeviceCommandService.class);
+        commandService.sendCommand($data.getDeviceId(), "turn_on", actionParams);
+        $data.addAttribute("aircon_status", "on");
+        $data.addAttribute("aircon_temperature", 26.0);
+        $data.addAttribute("aircon_mode", "cool");
+end
 
 rule "温度过高报警"
     rule-id "temp-high-alert-001"
-    salience 100
+    salience 90
     when
         $data : DeviceData(
             temperature != null && temperature > 35.0
         )
     then
         System.out.println("[规则触发] 设备温度过高报警 - 设备ID: " + $data.getDeviceId() + ", 当前温度: " + $data.getTemperature());
-end
-
-rule "低电量提醒"
-    rule-id "battery-low-001"
-    salience 90
-    when
-        $data : DeviceData(
-            batteryLevel != null && batteryLevel < 20
-        )
-    then
-        System.out.println("[规则触发] 设备低电量提醒 - 设备ID: " + $data.getDeviceId() + ", 剩余电量: " + $data.getBatteryLevel() + "%");
-end
-
-rule "设备离线告警"
-    rule-id "device-offline-001"
-    salience 80
-    when
-        $data : DeviceData(
-            status != null && status == 0
-        )
-    then
-        System.out.println("[规则触发] 设备离线告警 - 设备ID: " + $data.getDeviceId());
+        Map<String, Object> alertParams = new HashMap<>();
+        alertParams.put("level", "warning");
+        alertParams.put("message", "设备温度过高报警");
+        alertParams.put("deviceId", $data.getDeviceId());
+        alertParams.put("temperature", $data.getTemperature());
+        DeviceCommandService commandService = SpringContextUtil.getBean(DeviceCommandService.class);
+        commandService.sendCommand($data.getDeviceId(), "send_alert", alertParams);
 end

@@ -1,7 +1,16 @@
 import request from '../utils/request'
 
-export const getRuleList = (params) => {
-  return request.get('/rule/list', { params })
+export const getRuleList = async (params) => {
+  const res = await request.get('/rule/list', { params })
+  if (res && res.records !== undefined) {
+    return res
+  }
+  const records = res?.records || res?.list || []
+  const total = res?.total || 0
+  const current = res?.current || res?.pageNum || 1
+  const size = res?.size || res?.pageSize || 10
+  const pages = res?.pages || (total > 0 ? Math.ceil(total / size) : 0)
+  return { records, total, current, size, pages }
 }
 
 export const getRuleById = (id) => {
