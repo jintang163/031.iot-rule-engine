@@ -3,14 +3,16 @@ package com.iot.ruleengine.mqtt;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.ruleengine.drools.DeviceData;
-import com.iot.ruleengine.drools.DroolsRuleEngine;
+import com.iot.ruleengine.engine.RuleEngine;
 import com.iot.ruleengine.entity.Device;
 import com.iot.ruleengine.repository.DeviceDataRepository;
 import com.iot.ruleengine.repository.DeviceRepository;
 import com.iot.ruleengine.websocket.WebSocketService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.MessagingException;
@@ -31,27 +33,34 @@ public class DeviceDataHandler implements MessageHandler {
     private static final Pattern TOPIC_PATTERN = Pattern.compile("iot/device/([^/]+)/(telemetry|status)");
     private static final String DEVICE_STATUS_KEY_PREFIX = "iot:device:status:";
     private static final String DEVICE_DATA_KEY_PREFIX = "iot:device:data:";
+    private static final String KAFKA_TOPIC_TELEMETRY = "iot-device-telemetry";
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
     private final DeviceRepository deviceRepository;
     private final DeviceDataRepository deviceDataRepository;
-    private final DroolsRuleEngine droolsRuleEngine;
+    private final RuleEngine ruleEngine;
     private final WebSocketService webSocketService;
+
+    @Value("${rule.flink.enabled:false}")
+    private boolean flinkEnabled;
+
+    @Autowired(required = false)
+    private KafkaTemplate<String, String> kafkaTemplate;
 
     @Autowired
     public DeviceDataHandler(ObjectMapper objectMapper,
                              StringRedisTemplate redisTemplate,
                              DeviceRepository deviceRepository,
                              DeviceDataRepository deviceDataRepository,
-                             DroolsRuleEngine droolsRuleEngine,
+                             RuleEngine ruleEngine,
                              WebSocketService webSocketService) {
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
         this.deviceRepository = deviceRepository;
         this.deviceDataRepository = deviceDataRepository;
-        this.droolsRuleEngine = droolsRuleEngine;
+        this.ruleEngine = ruleEngine;
         this.webSocketService = webSocketService;
     }
 
@@ -126,7 +135,18 @@ public class DeviceDataHandler implements MessageHandler {
         saveDeviceData(entityData);
 
         log.debug("开始规则匹配, deviceId={}, temp={}, presence={}", deviceId, factData.getTemperature(), factData.getPresence());
-        droolsRuleEngine.executeRules(factData);
+        if (flinkEnabled && kafkaTemplate != null) {
+            try {
+                String kafkaPayload = objectMapper.writeValueAsString(factData);
+                kafkaTemplate.send(KAFKA_TOPIC_TELEMETRY, deviceId, kafkaPayload);
+                log.debug("Flink模式：设备数据已投递Kafka等待Flink处理, deviceId={}", deviceId);
+            } catch (Exception e) {
+                log.error("Flink模式：投递Kafka失败，降级为本地规则评估, deviceId={}", deviceId, e);
+                ruleEngine.evaluate(factData);
+            }
+        } else {
+            ruleEngine.evaluate(factData);
+        }
 
         webSocketService.sendDeviceData(deviceId, telemetry);
     }
@@ -158,7 +178,18 @@ public class DeviceDataHandler implements MessageHandler {
             factData.addAttribute(entry.getKey(), entry.getValue());
         }
 
-        droolsRuleEngine.executeRules(factData);
+        if (flinkEnabled && kafkaTemplate != null) {
+            try {
+                String kafkaPayload = objectMapper.writeValueAsString(factData);
+                kafkaTemplate.send(KAFKA_TOPIC_TELEMETRY, deviceId, kafkaPayload);
+                log.debug("Flink模式：设备状态数据已投递Kafka等待Flink处理, deviceId={}", deviceId);
+            } catch (Exception e) {
+                log.error("Flink模式：投递Kafka失败，降级为本地规则评估, deviceId={}", deviceId, e);
+                ruleEngine.evaluate(factData);
+            }
+        } else {
+            ruleEngine.evaluate(factData);
+        }
     }
 
     private void updateRedisDeviceData(String deviceId, String payload) {

@@ -25,6 +25,10 @@ public class RuleDetailVO {
 
     private String drlContent;
 
+    private String aviatorExpression;
+
+    private String aviatorActions;
+
     private List<Object> nodes;
 
     private List<Object> edges;

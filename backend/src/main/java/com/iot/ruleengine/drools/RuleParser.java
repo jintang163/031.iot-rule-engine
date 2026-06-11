@@ -18,53 +18,58 @@ public class RuleParser {
             "import java.util.Map;\n" +
             "import java.util.HashMap;\n\n";
 
+    // ==================== 公共解析数据结构 ====================
+
+    @Data
+    public static class ParseContext {
+        private Map<String, Node> nodeMap;
+        private List<Node> conditionNodes;
+        private List<Node> actionNodes;
+        private Map<String, List<String>> adjacencyList;
+        private Map<String, List<String>> reverseAdjacency;
+        private List<Node> sortedNodes;
+    }
+
+    @Data
+    public static class ConditionGroup {
+        private List<String> expressions;
+        private List<String> logicGates;
+    }
+
+    // ==================== Aviator 结果类 ====================
+
+    @Data
+    public static class AviatorParseResult {
+        private String expression;
+        private List<ActionDef> actions;
+        private String ruleName;
+        private String ruleId;
+    }
+
+    @Data
+    public static class ActionDef {
+        private String actionType;
+        private Map<String, Object> params;
+        private String targetDeviceId;
+        private int order;
+    }
+
+    // ==================== 公共节点类 ====================
+
+    @Data
+    public static class Node {
+        private String id;
+        private String type;
+        private JSONObject data;
+    }
+
+    // ==================== 公共入口方法 ====================
+
     public String parseToDrl(String ruleId, String ruleName, String jsonRules) {
-        JSONObject jsonObject = JSON.parseObject(jsonRules);
-        JSONArray nodes = jsonObject.getJSONArray("nodes");
-        JSONArray edges = jsonObject.getJSONArray("edges");
+        ParseContext ctx = parseJsonAndBuildGraph(jsonRules);
 
-        Map<String, Node> nodeMap = new HashMap<>();
-        List<Node> conditionNodes = new ArrayList<>();
-        List<Node> actionNodes = new ArrayList<>();
-
-        for (int i = 0; i < nodes.size(); i++) {
-            JSONObject nodeJson = nodes.getJSONObject(i);
-            Node node = new Node();
-            node.setId(nodeJson.getString("id"));
-            node.setType(nodeJson.getString("type"));
-            node.setData(nodeJson.getJSONObject("data"));
-            nodeMap.put(node.getId(), node);
-
-            if ("condition".equals(node.getType())) {
-                conditionNodes.add(node);
-            } else if ("action".equals(node.getType())) {
-                actionNodes.add(node);
-            }
-        }
-
-        Map<String, List<String>> adjacencyList = new HashMap<>();
-        Map<String, List<String>> reverseAdjacency = new HashMap<>();
-
-        for (int i = 0; i < edges.size(); i++) {
-            JSONObject edge = edges.getJSONObject(i);
-            String source = edge.getString("source");
-            String target = edge.getString("target");
-
-            adjacencyList.computeIfAbsent(source, k -> new ArrayList<>()).add(target);
-            reverseAdjacency.computeIfAbsent(target, k -> new ArrayList<>()).add(source);
-        }
-
-        Set<String> startNodes = new HashSet<>();
-        for (Node cond : conditionNodes) {
-            if (!reverseAdjacency.containsKey(cond.getId())) {
-                startNodes.add(cond.getId());
-            }
-        }
-
-        List<Node> sortedNodes = topologicalSort(nodeMap, adjacencyList);
-
-        String whenClause = buildWhenClause(conditionNodes, adjacencyList, reverseAdjacency, nodeMap, sortedNodes);
-        String thenClause = buildThenClause(actionNodes);
+        String whenClause = buildWhenClause(ctx);
+        String thenClause = buildThenClause(ctx.getActionNodes());
 
         StringBuilder drl = new StringBuilder();
         drl.append("package rules;\n\n");
@@ -81,6 +86,161 @@ public class RuleParser {
         log.debug("生成的DRL规则:\n{}", drl.toString());
         return drl.toString();
     }
+
+    public AviatorParseResult parseToAviator(String ruleId, String ruleName, String jsonRules) {
+        ParseContext ctx = parseJsonAndBuildGraph(jsonRules);
+
+        String expression = buildAviatorExpression(ctx);
+        List<ActionDef> actions = buildActionDefList(ctx);
+
+        AviatorParseResult result = new AviatorParseResult();
+        result.setExpression(expression);
+        result.setActions(actions);
+        result.setRuleId(ruleId);
+        result.setRuleName(ruleName);
+
+        log.debug("生成的Aviator表达式: {}, 动作数: {}", expression, actions.size());
+        return result;
+    }
+
+    // ==================== 公共抽取方法 ====================
+
+    private ParseContext parseJsonAndBuildGraph(String jsonRules) {
+        JSONObject jsonObject = JSON.parseObject(jsonRules);
+        JSONArray nodes = jsonObject.getJSONArray("nodes");
+        JSONArray edges = jsonObject.getJSONArray("edges");
+
+        ParseContext ctx = new ParseContext();
+        ctx.setNodeMap(new HashMap<>());
+        ctx.setConditionNodes(new ArrayList<>());
+        ctx.setActionNodes(new ArrayList<>());
+        ctx.setAdjacencyList(new HashMap<>());
+        ctx.setReverseAdjacency(new HashMap<>());
+
+        extractNodes(nodes, ctx);
+        extractEdges(edges, ctx);
+
+        List<Node> sorted = topologicalSort(ctx.getNodeMap(), ctx.getAdjacencyList());
+        ctx.setSortedNodes(sorted);
+
+        return ctx;
+    }
+
+    private void extractNodes(JSONArray nodes, ParseContext ctx) {
+        for (int i = 0; i < nodes.size(); i++) {
+            JSONObject nodeJson = nodes.getJSONObject(i);
+            Node node = new Node();
+            node.setId(nodeJson.getString("id"));
+            node.setType(nodeJson.getString("type"));
+            node.setData(nodeJson.getJSONObject("data"));
+            ctx.getNodeMap().put(node.getId(), node);
+
+            if ("condition".equals(node.getType())) {
+                ctx.getConditionNodes().add(node);
+            } else if ("action".equals(node.getType())) {
+                ctx.getActionNodes().add(node);
+            }
+        }
+    }
+
+    private void extractEdges(JSONArray edges, ParseContext ctx) {
+        for (int i = 0; i < edges.size(); i++) {
+            JSONObject edge = edges.getJSONObject(i);
+            String source = edge.getString("source");
+            String target = edge.getString("target");
+
+            ctx.getAdjacencyList().computeIfAbsent(source, k -> new ArrayList<>()).add(target);
+            ctx.getReverseAdjacency().computeIfAbsent(target, k -> new ArrayList<>()).add(source);
+        }
+    }
+
+    public List<Node> extractConditionNodes(ParseContext ctx) {
+        return ctx.getConditionNodes();
+    }
+
+    public List<Node> extractActionNodes(ParseContext ctx) {
+        return ctx.getActionNodes();
+    }
+
+    public List<ConditionGroup> buildConditionGroups(ParseContext ctx, boolean isAviator) {
+        List<ConditionGroup> groups = new ArrayList<>();
+        Map<String, String> nodeExprMap = new HashMap<>();
+
+        for (Node node : ctx.getSortedNodes()) {
+            if ("condition".equals(node.getType())) {
+                String expr = isAviator ? buildAviatorSingleCondition(node) : buildSingleCondition(node);
+                nodeExprMap.put(node.getId(), expr);
+            }
+        }
+
+        Set<String> processed = new HashSet<>();
+        Set<String> startNodes = new HashSet<>();
+        for (Node cond : ctx.getConditionNodes()) {
+            List<String> rev = ctx.getReverseAdjacency().get(cond.getId());
+            if (rev == null || rev.isEmpty()) {
+                startNodes.add(cond.getId());
+            }
+        }
+
+        for (Node node : ctx.getSortedNodes()) {
+            if (!"condition".equals(node.getType())) continue;
+            if (processed.contains(node.getId())) continue;
+
+            ConditionGroup group = new ConditionGroup();
+            group.setExpressions(new ArrayList<>());
+            group.setLogicGates(new ArrayList<>());
+
+            collectConditionGroup(node.getId(), ctx.getNodeMap(), ctx.getAdjacencyList(),
+                    ctx.getReverseAdjacency(), nodeExprMap, group, processed);
+
+            if (!group.getExpressions().isEmpty()) {
+                groups.add(group);
+            }
+        }
+
+        if (groups.isEmpty() && !nodeExprMap.isEmpty()) {
+            ConditionGroup group = new ConditionGroup();
+            group.setExpressions(new ArrayList<>(nodeExprMap.values()));
+            group.setLogicGates(new ArrayList<>());
+            groups.add(group);
+        }
+
+        return groups;
+    }
+
+    private void collectConditionGroup(String startId,
+                                       Map<String, Node> nodeMap,
+                                       Map<String, List<String>> adjacencyList,
+                                       Map<String, List<String>> reverseAdjacency,
+                                       Map<String, String> nodeExprMap,
+                                       ConditionGroup group,
+                                       Set<String> processed) {
+        Node current = nodeMap.get(startId);
+        if (current == null || processed.contains(startId)) return;
+
+        processed.add(startId);
+        String expr = nodeExprMap.get(startId);
+        if (expr != null) {
+            if (group.getExpressions().isEmpty()) {
+                group.getExpressions().add(expr);
+            } else {
+                String logicGate = extractLogicGate(current);
+                group.getLogicGates().add(mapLogicGate(logicGate));
+                group.getExpressions().add(expr);
+            }
+        }
+
+        List<String> neighbors = adjacencyList.getOrDefault(startId, Collections.emptyList());
+        for (String neighborId : neighbors) {
+            Node neighbor = nodeMap.get(neighborId);
+            if (neighbor != null && "condition".equals(neighbor.getType()) && !processed.contains(neighborId)) {
+                collectConditionGroup(neighborId, nodeMap, adjacencyList, reverseAdjacency,
+                        nodeExprMap, group, processed);
+            }
+        }
+    }
+
+    // ==================== 拓扑排序 ====================
 
     private List<Node> topologicalSort(Map<String, Node> nodeMap, Map<String, List<String>> adjacencyList) {
         Map<String, Integer> inDegree = new HashMap<>();
@@ -119,67 +279,44 @@ public class RuleParser {
         return result;
     }
 
-    private String buildWhenClause(List<Node> conditionNodes,
-                                   Map<String, List<String>> adjacencyList,
-                                   Map<String, List<String>> reverseAdjacency,
-                                   Map<String, Node> nodeMap,
-                                   List<Node> sortedNodes) {
-        if (conditionNodes.isEmpty()) {
+    // ==================== DRL: When 子句构建 ====================
+
+    private String buildWhenClause(ParseContext ctx) {
+        if (ctx.getConditionNodes().isEmpty()) {
             return "        $data : DeviceData()\n";
         }
 
         StringBuilder sb = new StringBuilder();
         sb.append("        $data : DeviceData(\n");
 
-        List<String> conditions = new ArrayList<>();
-        Map<String, String> nodeConditionMap = new HashMap<>();
+        List<ConditionGroup> groups = buildConditionGroups(ctx, false);
+        List<String> groupStrings = new ArrayList<>();
 
-        for (Node node : sortedNodes) {
-            if ("condition".equals(node.getType())) {
-                String condition = buildSingleCondition(node);
-                nodeConditionMap.put(node.getId(), condition);
+        for (ConditionGroup group : groups) {
+            StringBuilder groupSb = new StringBuilder();
+            List<String> exprs = group.getExpressions();
+            List<String> gates = group.getLogicGates();
+            for (int i = 0; i < exprs.size(); i++) {
+                if (i > 0 && i <= gates.size()) {
+                    groupSb.append(" ").append(gates.get(i - 1)).append(" ");
+                }
+                groupSb.append(exprs.get(i));
+            }
+            if (exprs.size() > 1) {
+                groupStrings.add("(" + groupSb.toString() + ")");
+            } else {
+                groupStrings.add(groupSb.toString());
             }
         }
 
-        Set<String> processed = new HashSet<>();
-        Set<String> startNodes = new HashSet<>();
-        for (Node cond : conditionNodes) {
-            if (!reverseAdjacency.containsKey(cond.getId()) || reverseAdjacency.get(cond.getId()).isEmpty()) {
-                startNodes.add(cond.getId());
-            }
-        }
-
-        for (Node node : sortedNodes) {
-            if (!"condition".equals(node.getType())) continue;
-            if (processed.contains(node.getId())) continue;
-
-            List<String> currentGroupConditions = new ArrayList<>();
-            collectConditionGroup(node.getId(), nodeMap, adjacencyList, reverseAdjacency,
-                    nodeConditionMap, currentGroupConditions, processed);
-
-            if (!currentGroupConditions.isEmpty()) {
-                String joined = String.join(" ", currentGroupConditions);
-                conditions.add(joined);
-            }
-        }
-
-        for (int i = 0; i < conditions.size(); i++) {
+        for (int i = 0; i < groupStrings.size(); i++) {
             sb.append("            ");
             if (i > 0) {
                 sb.append("&& ");
             }
-            sb.append(conditions.get(i));
-            if (i < conditions.size() - 1) {
+            sb.append(groupStrings.get(i));
+            if (i < groupStrings.size() - 1) {
                 sb.append("\n");
-            }
-        }
-
-        if (conditions.isEmpty()) {
-            for (String cond : nodeConditionMap.values()) {
-                conditions.add(cond);
-            }
-            if (!conditions.isEmpty()) {
-                sb.append("            ").append(String.join(" && ", conditions));
             }
         }
 
@@ -187,36 +324,7 @@ public class RuleParser {
         return sb.toString();
     }
 
-    private void collectConditionGroup(String startId,
-                                       Map<String, Node> nodeMap,
-                                       Map<String, List<String>> adjacencyList,
-                                       Map<String, List<String>> reverseAdjacency,
-                                       Map<String, String> nodeConditionMap,
-                                       List<String> result,
-                                       Set<String> processed) {
-        Node current = nodeMap.get(startId);
-        if (current == null || processed.contains(startId)) return;
-
-        processed.add(startId);
-        String condition = nodeConditionMap.get(startId);
-        if (condition != null) {
-            if (result.isEmpty()) {
-                result.add(condition);
-            } else {
-                String logicGate = extractLogicGate(current);
-                result.add(mapLogicGate(logicGate) + " " + condition);
-            }
-        }
-
-        List<String> neighbors = adjacencyList.getOrDefault(startId, Collections.emptyList());
-        for (String neighborId : neighbors) {
-            Node neighbor = nodeMap.get(neighborId);
-            if (neighbor != null && "condition".equals(neighbor.getType()) && !processed.contains(neighborId)) {
-                collectConditionGroup(neighborId, nodeMap, adjacencyList, reverseAdjacency,
-                        nodeConditionMap, result, processed);
-            }
-        }
-    }
+    // ==================== DRL: 条件构建 ====================
 
     private String extractLogicGate(Node node) {
         JSONObject data = node.getData();
@@ -301,7 +409,7 @@ public class RuleParser {
                 + "((java.lang.Comparable) attributes.get(\"" + conditionType + "\")).compareTo(" + value + ") " + op + " 0";
     }
 
-    private String mapOperator(String operator) {
+    public String mapOperator(String operator) {
         if (operator == null) return "==";
         switch (operator) {
             case ">":
@@ -325,6 +433,8 @@ public class RuleParser {
                 return "==";
         }
     }
+
+    // ==================== DRL: Then 子句构建 ====================
 
     private String buildThenClause(List<Node> actionNodes) {
         StringBuilder sb = new StringBuilder();
@@ -622,10 +732,316 @@ public class RuleParser {
         }
     }
 
-    @Data
-    public static class Node {
-        private String id;
-        private String type;
-        private JSONObject data;
+    // ==================== Aviator: 表达式构建 ====================
+
+    private String buildAviatorExpression(ParseContext ctx) {
+        if (ctx.getConditionNodes().isEmpty()) {
+            return "true";
+        }
+
+        List<ConditionGroup> groups = buildConditionGroups(ctx, true);
+        List<String> groupStrings = new ArrayList<>();
+
+        for (ConditionGroup group : groups) {
+            String groupExpr = joinGroupWithParentheses(group);
+            groupStrings.add(groupExpr);
+        }
+
+        if (groupStrings.isEmpty()) {
+            return "true";
+        }
+        if (groupStrings.size() == 1) {
+            return groupStrings.get(0);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        sb.append(String.join(" && ", groupStrings));
+        sb.append(")");
+        return sb.toString();
+    }
+
+    private String joinGroupWithParentheses(ConditionGroup group) {
+        List<String> exprs = group.getExpressions();
+        List<String> gates = group.getLogicGates();
+
+        if (exprs.isEmpty()) {
+            return "true";
+        }
+        if (exprs.size() == 1) {
+            return exprs.get(0);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        for (int i = 0; i < exprs.size(); i++) {
+            if (i > 0 && i <= gates.size()) {
+                sb.append(" ").append(gates.get(i - 1)).append(" ");
+            }
+            sb.append(exprs.get(i));
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    private String buildAviatorSingleCondition(Node node) {
+        JSONObject data = node.getData();
+        if (data == null) return "true";
+
+        String conditionType = data.getString("conditionType");
+        String operator = data.getString("operator");
+        String value = data.getString("value");
+
+        if (conditionType == null) return "true";
+
+        switch (conditionType) {
+            case "temperature":
+                return buildAviatorTemperatureCondition(operator, value);
+            case "humidity":
+                return buildAviatorHumidityCondition(operator, value);
+            case "presence":
+                return buildAviatorPresenceCondition(operator, value);
+            case "time":
+                return buildAviatorTimeCondition(operator, value);
+            default:
+                return buildAviatorAttributeCondition(conditionType, operator, value);
+        }
+    }
+
+    private String buildAviatorTemperatureCondition(String operator, String value) {
+        if (value == null) return "true";
+        String op = mapOperator(operator);
+        Object numVal = parseNumberValue(value);
+        return "temperature != nil && temperature " + op + " " + numVal;
+    }
+
+    private String buildAviatorHumidityCondition(String operator, String value) {
+        if (value == null) return "true";
+        String op = mapOperator(operator);
+        Object numVal = parseNumberValue(value);
+        return "humidity != nil && humidity " + op + " " + numVal;
+    }
+
+    private String buildAviatorPresenceCondition(String operator, String value) {
+        boolean expected = "true".equalsIgnoreCase(value) || "1".equals(value) || "是".equals(value);
+        String boolStr = expected ? "true" : "false";
+        return "presence != nil && presence == " + boolStr;
+    }
+
+    private String buildAviatorTimeCondition(String operator, String value) {
+        if (value == null) return "true";
+
+        String[] range = value.split("~");
+        if (range.length == 2) {
+            String startTime = escapeStringValue(range[0].trim());
+            String endTime = escapeStringValue(range[1].trim());
+            return "time != nil && time >= '" + startTime + "' && time <= '" + endTime + "'";
+        }
+
+        String op = mapOperator(operator);
+        String escapedVal = escapeStringValue(value);
+        return "time != nil && time " + op + " '" + escapedVal + "'";
+    }
+
+    private String buildAviatorAttributeCondition(String conditionType, String operator, String value) {
+        if (value == null) return "true";
+        String op = mapOperator(operator);
+        String attrKey = escapeStringValue(conditionType);
+        Object numVal = tryParseNumberValue(value);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("get(attributes, '").append(attrKey).append("') != nil");
+        sb.append(" && get(attributes, '").append(attrKey).append("') ").append(op).append(" ").append(numVal);
+        return sb.toString();
+    }
+
+    // ==================== Aviator: 动作构建 ====================
+
+    private List<ActionDef> buildActionDefList(ParseContext ctx) {
+        List<ActionDef> result = new ArrayList<>();
+        List<Node> actionNodes = ctx.getActionNodes();
+        Map<String, List<String>> adjacency = ctx.getAdjacencyList();
+        Map<String, Node> nodeMap = ctx.getNodeMap();
+
+        Set<String> actionIdSet = new HashSet<>();
+        for (Node n : actionNodes) {
+            actionIdSet.add(n.getId());
+        }
+
+        Map<String, Integer> inDegree = new HashMap<>();
+        for (Node n : actionNodes) {
+            inDegree.put(n.getId(), 0);
+        }
+        for (Node n : actionNodes) {
+            List<String> targets = adjacency.getOrDefault(n.getId(), Collections.emptyList());
+            for (String t : targets) {
+                if (actionIdSet.contains(t)) {
+                    inDegree.put(t, inDegree.getOrDefault(t, 0) + 1);
+                }
+            }
+        }
+        for (String condId : ctx.getNodeMap().keySet()) {
+            Node cond = nodeMap.get(condId);
+            if (cond != null && "condition".equals(cond.getType())) {
+                List<String> targets = adjacency.getOrDefault(condId, Collections.emptyList());
+                for (String t : targets) {
+                    if (actionIdSet.contains(t)) {
+                        inDegree.put(t, inDegree.getOrDefault(t, 0));
+                    }
+                }
+            }
+        }
+
+        Queue<String> queue = new LinkedList<>();
+        for (Node n : actionNodes) {
+            if (inDegree.getOrDefault(n.getId(), 0) == 0) {
+                queue.add(n.getId());
+            }
+        }
+
+        Map<String, Integer> orderMap = new HashMap<>();
+        int order = 0;
+        while (!queue.isEmpty()) {
+            String nodeId = queue.poll();
+            orderMap.put(nodeId, order++);
+
+            List<String> targets = adjacency.getOrDefault(nodeId, Collections.emptyList());
+            for (String t : targets) {
+                if (actionIdSet.contains(t)) {
+                    int deg = inDegree.get(t) - 1;
+                    inDegree.put(t, deg);
+                    if (deg == 0) {
+                        queue.add(t);
+                    }
+                }
+            }
+        }
+
+        for (Node n : actionNodes) {
+            if (!orderMap.containsKey(n.getId())) {
+                orderMap.put(n.getId(), order++);
+            }
+        }
+
+        List<Node> sortedActions = new ArrayList<>(actionNodes);
+        sortedActions.sort(Comparator.comparingInt(a -> orderMap.getOrDefault(a.getId(), 0)));
+
+        int idx = 0;
+        for (Node actionNode : sortedActions) {
+            ActionDef def = buildSingleActionDef(actionNode, idx++);
+            if (def != null) {
+                result.add(def);
+            }
+        }
+
+        return result;
+    }
+
+    private ActionDef buildSingleActionDef(Node actionNode, int order) {
+        JSONObject data = actionNode.getData();
+        if (data == null) return null;
+
+        String actionType = data.getString("actionType");
+        if (actionType == null) return null;
+
+        ActionDef def = new ActionDef();
+        def.setActionType(actionType);
+        def.setOrder(order);
+
+        String targetDeviceId = data.containsKey("deviceId") ? data.getString("deviceId") : null;
+        if (targetDeviceId != null && targetDeviceId.trim().isEmpty()) {
+            targetDeviceId = null;
+        }
+        def.setTargetDeviceId(targetDeviceId);
+
+        JSONObject params = data.getJSONObject("params");
+        Map<String, Object> paramMap = buildActionParamMap(actionType, params);
+        def.setParams(paramMap);
+
+        return def;
+    }
+
+    private Map<String, Object> buildActionParamMap(String actionType, JSONObject params) {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        switch (actionType) {
+            case "turn_on_aircon":
+                result.put("temperature", coerceNumber(26));
+                result.put("mode", "cool");
+                break;
+            case "turn_on_light":
+                result.put("brightness", coerceNumber(100));
+                result.put("color", "white");
+                break;
+            case "send_alert":
+                result.put("level", "info");
+                result.put("message", "告警触发");
+                break;
+            default:
+                break;
+        }
+
+        if (params != null) {
+            for (String key : params.keySet()) {
+                Object val = params.get(key);
+                if (val instanceof Number) {
+                    result.put(key, coerceNumber((Number) val));
+                } else if (val instanceof String) {
+                    String strVal = (String) val;
+                    if (isTemplatePlaceholder(strVal)) {
+                        result.put(key, strVal);
+                    } else {
+                        result.put(key, strVal);
+                    }
+                } else {
+                    result.put(key, val);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private boolean isTemplatePlaceholder(String val) {
+        return val != null && val.startsWith("${") && val.endsWith("}");
+    }
+
+    // ==================== 工具方法 ====================
+
+    public String escapeStringValue(String val) {
+        if (val == null) return "";
+        return val.replace("'", "\\'");
+    }
+
+    public Number coerceNumber(Number val) {
+        if (val == null) return 0.0;
+        if (val instanceof Double || val instanceof Float) {
+            return val.doubleValue();
+        }
+        return val.doubleValue();
+    }
+
+    private Object parseNumberValue(String valueStr) {
+        try {
+            double d = Double.parseDouble(valueStr.trim());
+            if (d == Math.floor(d) && !Double.isInfinite(d)) {
+                return coerceNumber((long) d);
+            }
+            return d;
+        } catch (NumberFormatException e) {
+            return "'" + escapeStringValue(valueStr) + "'";
+        }
+    }
+
+    private Object tryParseNumberValue(String valueStr) {
+        try {
+            double d = Double.parseDouble(valueStr.trim());
+            if (d == Math.floor(d) && !Double.isInfinite(d)) {
+                return coerceNumber((long) d);
+            }
+            return d;
+        } catch (NumberFormatException e) {
+            return "'" + escapeStringValue(valueStr) + "'";
+        }
     }
 }

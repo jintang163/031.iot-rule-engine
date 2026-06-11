@@ -9,6 +9,9 @@ import com.iot.ruleengine.drools.DroolsRuleEngine;
 import com.iot.ruleengine.drools.RuleParser;
 import com.iot.ruleengine.dto.RuleDTO;
 import com.iot.ruleengine.dto.RuleTestDTO;
+import com.iot.ruleengine.engine.RuleEngine;
+import com.iot.ruleengine.engine.RuleEngine.RuleMatchResult;
+import com.iot.ruleengine.engine.aviator.AviatorRuleEngine;
 import com.iot.ruleengine.entity.Rule;
 import com.iot.ruleengine.exception.BusinessException;
 import com.iot.ruleengine.repository.RuleRepository;
@@ -16,6 +19,8 @@ import com.iot.ruleengine.service.RuleService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -31,13 +36,24 @@ public class RuleServiceImpl implements RuleService {
 
     private final RuleRepository ruleRepository;
     private final RuleParser ruleParser;
-    private final DroolsRuleEngine droolsRuleEngine;
+    private final RuleEngine ruleEngine;
+
+    @Value("${rule.engine:aviator}")
+    private String engineType;
+
+    @Autowired(required = false)
+    @Qualifier("aviatorRuleEngine")
+    private AviatorRuleEngine aviatorRuleEngine;
+
+    @Autowired(required = false)
+    @Qualifier("droolsRuleEngine")
+    private DroolsRuleEngine droolsRuleEngine;
 
     @Autowired
-    public RuleServiceImpl(RuleRepository ruleRepository, RuleParser ruleParser, DroolsRuleEngine droolsRuleEngine) {
+    public RuleServiceImpl(RuleRepository ruleRepository, RuleParser ruleParser, RuleEngine ruleEngine) {
         this.ruleRepository = ruleRepository;
         this.ruleParser = ruleParser;
-        this.droolsRuleEngine = droolsRuleEngine;
+        this.ruleEngine = ruleEngine;
     }
 
     @Override
@@ -47,33 +63,16 @@ public class RuleServiceImpl implements RuleService {
         BeanUtils.copyProperties(ruleDTO, rule);
         rule.setStatus(0);
 
-        if (StringUtils.hasText(rule.getRuleJson())) {
-            try {
-                String drlContent = ruleParser.parseToDrl(
-                        rule.getId() != null ? String.valueOf(rule.getId()) : "temp",
-                        rule.getName(),
-                        rule.getRuleJson()
-                );
-                rule.setDrlContent(drlContent);
-            } catch (Exception e) {
-                log.error("规则解析失败: {}", e.getMessage(), e);
-                throw new BusinessException("规则JSON解析失败: " + e.getMessage());
-            }
-        }
+        parseAndSetRuleContents(rule, rule.getId() != null ? String.valueOf(rule.getId()) : "temp");
 
         ruleRepository.insert(rule);
 
         if (StringUtils.hasText(rule.getRuleJson())) {
             try {
-                String drlContent = ruleParser.parseToDrl(
-                        String.valueOf(rule.getId()),
-                        rule.getName(),
-                        rule.getRuleJson()
-                );
-                rule.setDrlContent(drlContent);
+                parseAndSetRuleContents(rule, String.valueOf(rule.getId()));
                 ruleRepository.updateById(rule);
             } catch (Exception e) {
-                log.error("规则解析失败: {}", e.getMessage(), e);
+                log.error("二次规则解析失败: {}", e.getMessage(), e);
             }
         }
 
@@ -92,25 +91,13 @@ public class RuleServiceImpl implements RuleService {
 
         BeanUtils.copyProperties(ruleDTO, existRule);
 
-        if (StringUtils.hasText(existRule.getRuleJson())) {
-            try {
-                String drlContent = ruleParser.parseToDrl(
-                        String.valueOf(existRule.getId()),
-                        existRule.getName(),
-                        existRule.getRuleJson()
-                );
-                existRule.setDrlContent(drlContent);
-            } catch (Exception e) {
-                log.error("规则解析失败: {}", e.getMessage(), e);
-                throw new BusinessException("规则JSON解析失败: " + e.getMessage());
-            }
-        }
+        parseAndSetRuleContents(existRule, String.valueOf(existRule.getId()));
 
         existRule.setStatus(0);
         ruleRepository.updateById(existRule);
 
         if (wasEnabled) {
-            droolsRuleEngine.removeRule(String.valueOf(existRule.getId()));
+            ruleEngine.unregisterRule(existRule.getId());
         }
 
         return existRule;
@@ -125,7 +112,7 @@ public class RuleServiceImpl implements RuleService {
         }
 
         if (existRule.getStatus() != null && existRule.getStatus() == 1) {
-            droolsRuleEngine.removeRule(String.valueOf(id));
+            ruleEngine.unregisterRule(id);
         }
 
         ruleRepository.deleteById(id);
@@ -168,23 +155,7 @@ public class RuleServiceImpl implements RuleService {
             throw new BusinessException("规则不存在");
         }
 
-        if (!StringUtils.hasText(rule.getDrlContent())) {
-            if (StringUtils.hasText(rule.getRuleJson())) {
-                try {
-                    String drlContent = ruleParser.parseToDrl(
-                            String.valueOf(rule.getId()),
-                            rule.getName(),
-                            rule.getRuleJson()
-                    );
-                    rule.setDrlContent(drlContent);
-                } catch (Exception e) {
-                    log.error("规则解析失败: {}", e.getMessage(), e);
-                    throw new BusinessException("规则JSON解析失败: " + e.getMessage());
-                }
-            } else {
-                throw new BusinessException("规则内容为空，无法启用");
-            }
-        }
+        ensureRuleContentsParsed(rule);
 
         if (StringUtils.hasText(rule.getMutexGroup())) {
             QueryWrapper<Rule> mutexQuery = new QueryWrapper<>();
@@ -197,8 +168,8 @@ public class RuleServiceImpl implements RuleService {
             }
         }
 
-        boolean compileResult = droolsRuleEngine.compileRule(String.valueOf(id), rule.getDrlContent());
-        if (!compileResult) {
+        boolean registerResult = registerRuleToEngine(rule);
+        if (!registerResult) {
             throw new BusinessException("规则编译失败，请检查规则内容");
         }
 
@@ -214,7 +185,7 @@ public class RuleServiceImpl implements RuleService {
             throw new BusinessException("规则不存在");
         }
 
-        droolsRuleEngine.removeRule(String.valueOf(id));
+        ruleEngine.unregisterRule(id);
 
         rule.setStatus(0);
         ruleRepository.updateById(rule);
@@ -222,10 +193,10 @@ public class RuleServiceImpl implements RuleService {
 
     @Override
     public List<Map<String, Object>> testRule(RuleTestDTO ruleTestDTO) {
-        com.iot.ruleengine.drools.DeviceData deviceData;
+        DeviceData deviceData;
         try {
             JSONObject jsonObject = JSON.parseObject(ruleTestDTO.getDeviceData());
-            deviceData = new com.iot.ruleengine.drools.DeviceData();
+            deviceData = new DeviceData();
             if (jsonObject.containsKey("deviceId")) {
                 deviceData.setDeviceId(jsonObject.getString("deviceId"));
             }
@@ -251,30 +222,18 @@ public class RuleServiceImpl implements RuleService {
             throw new BusinessException("设备数据解析失败: " + e.getMessage());
         }
 
-        String testRuleId = ruleTestDTO.getRuleId() != null ? String.valueOf(ruleTestDTO.getRuleId()) : null;
+        Long testRuleId = ruleTestDTO.getRuleId();
         Rule rule = null;
         if (testRuleId != null) {
             rule = ruleRepository.selectById(ruleTestDTO.getRuleId());
         }
 
-        if (rule != null && StringUtils.hasText(rule.getDrlContent())) {
-            boolean compileResult = droolsRuleEngine.compileRule(testRuleId, rule.getDrlContent());
-            if (!compileResult) {
-                throw new BusinessException("规则编译失败");
-            }
-        } else if (rule != null && StringUtils.hasText(rule.getRuleJson())) {
-            try {
-                String drlContent = ruleParser.parseToDrl(testRuleId, rule.getName(), rule.getRuleJson());
-                boolean compileResult = droolsRuleEngine.compileRule(testRuleId, drlContent);
-                if (!compileResult) {
-                    throw new BusinessException("规则编译失败");
-                }
-            } catch (Exception e) {
-                throw new BusinessException("规则解析失败: " + e.getMessage());
-            }
+        if (rule != null) {
+            ensureRuleContentsParsed(rule);
+            registerRuleToEngine(rule);
         }
 
-        List<DroolsRuleEngine.RuleExecutionResult> results = droolsRuleEngine.executeRules(deviceData, true);
+        List<RuleMatchResult> results = ruleEngine.evaluate(deviceData, true);
 
         List<Map<String, Object>> triggeredActions = new ArrayList<>();
         List<DeviceData.ActionRequest> pendingActions = deviceData.getPendingActions();
@@ -292,13 +251,14 @@ public class RuleServiceImpl implements RuleService {
         }
 
         List<Map<String, Object>> triggeredRules = new ArrayList<>();
-        for (DroolsRuleEngine.RuleExecutionResult result : results) {
+        for (RuleMatchResult result : results) {
             Map<String, Object> ruleMap = new HashMap<>();
             ruleMap.put("ruleId", result.getRuleId());
             ruleMap.put("ruleName", result.getRuleName());
-            ruleMap.put("packageName", result.getPackageName());
-            ruleMap.put("triggerTime", result.getTriggerTime());
+            ruleMap.put("triggerTime", result.getTriggerTime() != null ? result.getTriggerTime().toString() : null);
             ruleMap.put("deviceId", result.getDeviceId());
+            ruleMap.put("matchedExpression", result.getMatchedExpression());
+            ruleMap.put("triggeredActions", result.getTriggeredActions());
             triggeredRules.add(ruleMap);
         }
 
@@ -323,5 +283,116 @@ public class RuleServiceImpl implements RuleService {
         queryWrapper.eq("mutex_group", mutexGroup).eq("status", 1);
         List<Rule> rules = ruleRepository.selectList(queryWrapper);
         return rules.isEmpty();
+    }
+
+    private void parseAndSetRuleContents(Rule rule, String ruleId) {
+        if (!StringUtils.hasText(rule.getRuleJson())) {
+            return;
+        }
+        try {
+            String drlContent = ruleParser.parseToDrl(ruleId, rule.getName(), rule.getRuleJson());
+            rule.setDrlContent(drlContent);
+        } catch (Exception e) {
+            log.error("DRL解析失败: {}", e.getMessage(), e);
+            throw new BusinessException("规则JSON解析为DRL失败: " + e.getMessage());
+        }
+
+        try {
+            RuleParser.AviatorParseResult aviatorResult = ruleParser.parseToAviator(ruleId, rule.getName(), rule.getRuleJson());
+            if (aviatorResult != null) {
+                rule.setAviatorExpression(aviatorResult.getExpression());
+                if (aviatorResult.getActions() != null) {
+                    rule.setAviatorActions(JSON.toJSONString(aviatorResult.getActions()));
+                }
+            }
+        } catch (Exception e) {
+            log.error("Aviator解析失败: {}", e.getMessage(), e);
+            throw new BusinessException("规则JSON解析为Aviator失败: " + e.getMessage());
+        }
+    }
+
+    private void ensureRuleContentsParsed(Rule rule) {
+        boolean needParse = false;
+
+        if (!StringUtils.hasText(rule.getDrlContent())
+                || !StringUtils.hasText(rule.getAviatorExpression())) {
+            needParse = true;
+        }
+
+        if (needParse && StringUtils.hasText(rule.getRuleJson())) {
+            parseAndSetRuleContents(rule, String.valueOf(rule.getId()));
+            ruleRepository.updateById(rule);
+        } else if (!StringUtils.hasText(rule.getRuleJson())) {
+            throw new BusinessException("规则内容为空，无法启用");
+        }
+    }
+
+    private boolean registerRuleToEngine(Rule rule) {
+        Long ruleId = rule.getId();
+        String ruleName = rule.getName();
+
+        if (isAviatorEngine()) {
+            String expression = rule.getAviatorExpression();
+            if (!StringUtils.hasText(expression)) {
+                log.error("Aviator表达式为空，无法注册规则: ruleId={}", ruleId);
+                return false;
+            }
+            Object actionsMeta = parseAviatorActionsMeta(rule);
+            return ruleEngine.registerRule(ruleId, ruleName, expression, actionsMeta);
+        } else {
+            String drlContent = rule.getDrlContent();
+            if (!StringUtils.hasText(drlContent)) {
+                log.error("DRL内容为空，无法注册规则: ruleId={}", ruleId);
+                return false;
+            }
+            return ruleEngine.registerRule(ruleId, ruleName, drlContent, null);
+        }
+    }
+
+    private boolean isAviatorEngine() {
+        return ruleEngine instanceof AviatorRuleEngine
+                || "aviator".equalsIgnoreCase(engineType);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object parseAviatorActionsMeta(Rule rule) {
+        if (!StringUtils.hasText(rule.getAviatorActions())) {
+            JSONObject defaultMeta = new JSONObject();
+            if (rule.getPriority() != null) {
+                defaultMeta.put("priority", rule.getPriority());
+            }
+            return defaultMeta;
+        }
+        try {
+            List<Map<String, Object>> actionList = JSON.parseObject(rule.getAviatorActions(), List.class);
+            if (actionList == null || actionList.isEmpty()) {
+                JSONObject defaultMeta = new JSONObject();
+                if (rule.getPriority() != null) {
+                    defaultMeta.put("priority", rule.getPriority());
+                }
+                return defaultMeta;
+            }
+
+            if (actionList.size() == 1) {
+                Map<String, Object> single = actionList.get(0);
+                JSONObject jsonMeta = new JSONObject();
+                jsonMeta.put("actionType", single.get("actionType"));
+                jsonMeta.put("actionParams", single.get("params"));
+                jsonMeta.put("targetDeviceId", single.get("targetDeviceId"));
+                if (rule.getPriority() != null) {
+                    jsonMeta.put("priority", rule.getPriority());
+                }
+                return jsonMeta;
+            }
+
+            return actionList;
+        } catch (Exception e) {
+            log.error("解析Aviator动作定义失败, ruleId: {}", rule.getId(), e);
+            JSONObject defaultMeta = new JSONObject();
+            if (rule.getPriority() != null) {
+                defaultMeta.put("priority", rule.getPriority());
+            }
+            return defaultMeta;
+        }
     }
 }

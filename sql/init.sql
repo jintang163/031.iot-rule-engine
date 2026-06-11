@@ -18,6 +18,8 @@ CREATE TABLE `rule` (
   `description` VARCHAR(500) COMMENT '规则描述',
   `rule_json` MEDIUMTEXT COMMENT 'JSON格式规则定义（前端画布）',
   `drl_content` MEDIUMTEXT COMMENT 'Drools DRL规则内容',
+  `aviator_expression` MEDIUMTEXT COMMENT 'Aviator表达式' AFTER drl_content,
+  `aviator_actions` MEDIUMTEXT COMMENT 'Aviator动作定义JSON' AFTER aviator_expression,
   `status` TINYINT DEFAULT 1 COMMENT '1启用 0禁用',
   `priority` INT DEFAULT 5 COMMENT '优先级1-10',
   `mutex_group` VARCHAR(100) COMMENT '互斥规则组名',
@@ -26,6 +28,10 @@ CREATE TABLE `rule` (
   INDEX `idx_status` (`status`),
   INDEX `idx_mutex_group` (`mutex_group`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='规则表';
+
+-- 向后兼容：如果是老库升级，单独执行这两条ALTER
+-- ALTER TABLE rule ADD COLUMN aviator_expression MEDIUMTEXT COMMENT 'Aviator表达式' AFTER drl_content;
+-- ALTER TABLE rule ADD COLUMN aviator_actions MEDIUMTEXT COMMENT 'Aviator动作定义JSON' AFTER aviator_expression;
 
 -- ============================================================
 -- 2. 设备注册表 (device)

@@ -3,14 +3,18 @@ package com.iot.ruleengine.controller;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.iot.ruleengine.dto.PageResult;
 import com.iot.ruleengine.dto.Result;
 import com.iot.ruleengine.dto.RuleDTO;
 import com.iot.ruleengine.dto.RuleDetailVO;
 import com.iot.ruleengine.dto.RuleTestDTO;
+import com.iot.ruleengine.engine.RuleEngine;
 import com.iot.ruleengine.entity.Rule;
+import com.iot.ruleengine.repository.RuleRepository;
 import com.iot.ruleengine.service.RuleService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/rule")
 @CrossOrigin(origins = "*", maxAge = 3600)
@@ -27,9 +32,15 @@ public class RuleController {
 
     private final RuleService ruleService;
 
+    private final RuleEngine ruleEngine;
+
+    private final RuleRepository ruleRepository;
+
     @Autowired
-    public RuleController(RuleService ruleService) {
+    public RuleController(RuleService ruleService, RuleEngine ruleEngine, RuleRepository ruleRepository) {
         this.ruleService = ruleService;
+        this.ruleEngine = ruleEngine;
+        this.ruleRepository = ruleRepository;
     }
 
     @PostMapping
@@ -96,6 +107,56 @@ public class RuleController {
         return Result.success(available);
     }
 
+    @GetMapping("/internal/enabled-list")
+    public Result<List<Map<String, Object>>> getEnabledRulesList() {
+        log.info("内部接口：拉取所有启用的规则列表");
+        try {
+            QueryWrapper<Rule> queryWrapper = new QueryWrapper<>();
+            queryWrapper.eq("status", 1);
+            List<Rule> enabledRules = ruleRepository.selectList(queryWrapper);
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Rule rule : enabledRules) {
+                Map<String, Object> ruleMap = new HashMap<>();
+                ruleMap.put("id", rule.getId());
+                ruleMap.put("name", rule.getName());
+                ruleMap.put("expression", rule.getAviatorExpression() != null ? rule.getAviatorExpression() : "");
+                ruleMap.put("drlContent", rule.getDrlContent() != null ? rule.getDrlContent() : "");
+                ruleMap.put("ruleJson", rule.getRuleJson() != null ? rule.getRuleJson() : "");
+                ruleMap.put("priority", rule.getPriority() != null ? rule.getPriority() : 5);
+                ruleMap.put("aviatorActions", rule.getAviatorActions() != null ? rule.getAviatorActions() : "");
+                result.add(ruleMap);
+            }
+
+            log.info("拉取启用规则列表完成，数量: {}", result.size());
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("拉取启用规则列表失败", e);
+            return Result.fail("拉取规则列表失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/internal/reload")
+    public Result<Map<String, Object>> reloadAllRules() {
+        log.info("内部接口：触发规则引擎重新加载所有规则");
+        try {
+            ruleEngine.reloadAll();
+            int loadedCount = ruleEngine.getLoadedRuleCount();
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("loadedCount", loadedCount);
+            result.put("loadedRuleIds", ruleEngine.getLoadedRuleIds());
+            result.put("message", "规则重载完成，共加载 " + loadedCount + " 条规则");
+
+            log.info("规则重载完成，数量: {}", loadedCount);
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("规则重载失败", e);
+            return Result.fail("规则重载失败: " + e.getMessage());
+        }
+    }
+
     private RuleDetailVO convertToDetailVO(Rule rule) {
         RuleDetailVO vo = new RuleDetailVO();
         vo.setId(rule.getId());
@@ -106,6 +167,8 @@ public class RuleController {
         vo.setMutexGroup(rule.getMutexGroup());
         vo.setRuleJson(rule.getRuleJson());
         vo.setDrlContent(rule.getDrlContent());
+        vo.setAviatorExpression(rule.getAviatorExpression() != null ? rule.getAviatorExpression() : "");
+        vo.setAviatorActions(rule.getAviatorActions() != null ? rule.getAviatorActions() : "");
         vo.setCreateTime(rule.getCreateTime());
         vo.setUpdateTime(rule.getUpdateTime());
 

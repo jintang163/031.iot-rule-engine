@@ -25,6 +25,12 @@ public class Rule {
     @TableField("drl_content")
     private String drlContent;
 
+    @TableField("aviator_expression")
+    private String aviatorExpression;
+
+    @TableField("aviator_actions")
+    private String aviatorActions;
+
     private Integer status;
 
     private Integer priority;

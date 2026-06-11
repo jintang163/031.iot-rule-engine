@@ -1,6 +1,7 @@
 package com.iot.ruleengine.drools;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.iot.ruleengine.engine.RuleEngine;
 import com.iot.ruleengine.entity.Rule;
 import com.iot.ruleengine.mqtt.DeviceCommandService;
 import com.iot.ruleengine.repository.RuleRepository;
@@ -16,16 +17,19 @@ import org.kie.api.runtime.KieSession;
 import org.kie.internal.utils.KieHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Slf4j
-@Service
-public class DroolsRuleEngine {
+public class DroolsRuleEngine implements RuleEngine {
+
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final KieServices kieServices;
 
@@ -37,8 +41,6 @@ public class DroolsRuleEngine {
 
     private RuleRepository ruleRepository;
 
-    private RuleRepository ruleRepository2;
-
     @Lazy
     private DeviceCommandService deviceCommandService;
 
@@ -48,7 +50,6 @@ public class DroolsRuleEngine {
 
     private final Object lock = new Object();
 
-    @Autowired
     public DroolsRuleEngine(KieServices kieServices, KieContainer kieContainer,
                             RuleExecutionListener ruleExecutionListener, RuleParser ruleParser) {
         this.kieServices = kieServices;
@@ -60,11 +61,6 @@ public class DroolsRuleEngine {
     @Autowired
     public void setRuleRepository(@Lazy RuleRepository ruleRepository) {
         this.ruleRepository = ruleRepository;
-    }
-
-    @Autowired
-    public void setRuleRepository2(@Lazy RuleRepository ruleRepository2) {
-        this.ruleRepository2 = ruleRepository2;
     }
 
     @Autowired
@@ -95,6 +91,16 @@ public class DroolsRuleEngine {
 
     private void registerListeners(KieSession session) {
         session.addEventListener((AgendaEventListener) ruleExecutionListener);
+    }
+
+    @Override
+    public boolean registerRule(Long ruleId, String ruleName, String expression, Object actionsMeta) {
+        return compileRule(String.valueOf(ruleId), expression);
+    }
+
+    @Override
+    public boolean unregisterRule(Long ruleId) {
+        return removeRule(String.valueOf(ruleId));
     }
 
     public boolean compileRule(String ruleId, String drlContent) {
@@ -136,6 +142,62 @@ public class DroolsRuleEngine {
         }
     }
 
+    @Override
+    public List<RuleMatchResult> evaluate(DeviceData data) {
+        return evaluate(data, false);
+    }
+
+    @Override
+    public List<RuleMatchResult> evaluate(DeviceData data, boolean dryRun) {
+        List<RuleExecutionResult> executionResults = executeRules(data, dryRun);
+        return convertToRuleMatchResults(executionResults, data);
+    }
+
+    private List<RuleMatchResult> convertToRuleMatchResults(List<RuleExecutionResult> executionResults, DeviceData data) {
+        List<RuleMatchResult> results = new ArrayList<>();
+        List<DeviceData.ActionRequest> pendingActions = data != null ? data.getPendingActions() : null;
+
+        for (RuleExecutionResult execResult : executionResults) {
+            RuleMatchResult.RuleMatchResultBuilder builder = RuleMatchResult.builder()
+                    .ruleName(execResult.getRuleName())
+                    .deviceId(execResult.getDeviceId())
+                    .matchedExpression(execResult.getPackageName());
+
+            try {
+                if (execResult.getRuleId() != null) {
+                    builder.ruleId(Long.parseLong(execResult.getRuleId()));
+                }
+            } catch (NumberFormatException e) {
+                log.debug("ruleId格式转换失败: {}", execResult.getRuleId());
+            }
+
+            try {
+                if (execResult.getTriggerTime() != null) {
+                    builder.triggerTime(LocalDateTime.parse(execResult.getTriggerTime(), DATE_TIME_FORMATTER));
+                }
+            } catch (Exception e) {
+                log.debug("triggerTime格式转换失败: {}", execResult.getTriggerTime());
+            }
+
+            List<DeviceData.ActionRequest> matchedActions = new ArrayList<>();
+            if (pendingActions != null) {
+                for (DeviceData.ActionRequest action : pendingActions) {
+                    boolean ruleIdMatch = (execResult.getRuleId() == null && action.getRuleId() == null)
+                            || (execResult.getRuleId() != null && execResult.getRuleId().equals(action.getRuleId()));
+                    boolean ruleNameMatch = (execResult.getRuleName() == null && action.getRuleName() == null)
+                            || (execResult.getRuleName() != null && execResult.getRuleName().equals(action.getRuleName()));
+                    if (ruleIdMatch || ruleNameMatch) {
+                        matchedActions.add(action);
+                    }
+                }
+            }
+            builder.triggeredActions(matchedActions);
+            results.add(builder.build());
+        }
+
+        return results;
+    }
+
     public List<RuleExecutionResult> executeRules(DeviceData data) {
         return executeRules(data, false);
     }
@@ -175,33 +237,33 @@ public class DroolsRuleEngine {
                     log.info("DryRun模式: 跳过{}个MQTT指令下发，仅返回动作列表", pendingActions.size());
                 } else if (deviceCommandService != null) {
                     log.info("规则触发完成，开始执行{}个待落地动作", pendingActions.size());
-                for (DeviceData.ActionRequest actionRequest : pendingActions) {
-                    try {
-                        String ruleIdStr = actionRequest.getRuleId();
-                        String ruleName = actionRequest.getRuleName();
-                        Long ruleId = null;
-                        if (ruleIdStr != null && !"null".equalsIgnoreCase(ruleIdStr)) {
-                            try {
-                                ruleId = Long.parseLong(ruleIdStr);
-                            } catch (NumberFormatException e) {
-                                log.debug("ruleId格式转换失败: {}", ruleIdStr);
+                    for (DeviceData.ActionRequest actionRequest : pendingActions) {
+                        try {
+                            String ruleIdStr = actionRequest.getRuleId();
+                            String ruleName = actionRequest.getRuleName();
+                            Long ruleId = null;
+                            if (ruleIdStr != null && !"null".equalsIgnoreCase(ruleIdStr)) {
+                                try {
+                                    ruleId = Long.parseLong(ruleIdStr);
+                                } catch (NumberFormatException e) {
+                                    log.debug("ruleId格式转换失败: {}", ruleIdStr);
+                                }
                             }
+                            String targetDeviceId = actionRequest.getTargetDeviceId() != null
+                                    ? actionRequest.getTargetDeviceId() : data.getDeviceId();
+                            deviceCommandService.sendCommand(
+                                    targetDeviceId,
+                                    actionRequest.getActionType(),
+                                    actionRequest.getParams(),
+                                    ruleId,
+                                    ruleName
+                            );
+                        } catch (Exception e) {
+                            log.error("动作落地失败: actionType={}, targetDeviceId={}, error={}",
+                                    actionRequest.getActionType(), actionRequest.getTargetDeviceId(), e.getMessage(), e);
                         }
-                        String targetDeviceId = actionRequest.getTargetDeviceId() != null
-                                ? actionRequest.getTargetDeviceId() : data.getDeviceId();
-                        deviceCommandService.sendCommand(
-                                targetDeviceId,
-                                actionRequest.getActionType(),
-                                actionRequest.getParams(),
-                                ruleId,
-                                ruleName
-                        );
-                    } catch (Exception e) {
-                        log.error("动作落地失败: actionType={}, targetDeviceId={}, error={}",
-                                actionRequest.getActionType(), actionRequest.getTargetDeviceId(), e.getMessage(), e);
                     }
-                }
-                log.info("待落地动作执行完成");
+                    log.info("待落地动作执行完成");
                 }
             }
 
@@ -234,7 +296,11 @@ public class DroolsRuleEngine {
         } catch (Exception e) {
             log.error("规则执行异常: deviceId={}, error={}", data.getDeviceId(), e.getMessage(), e);
         } finally {
-            kieSession.delete(kieSession.getFactHandle(data));
+            try {
+                kieSession.delete(kieSession.getFactHandle(data));
+            } catch (Exception e) {
+                log.debug("删除Fact异常: {}", e.getMessage());
+            }
         }
 
         return results;
@@ -253,6 +319,11 @@ public class DroolsRuleEngine {
 
         log.info("规则移除成功: ruleId={}", ruleId);
         return true;
+    }
+
+    @Override
+    public void reloadAll() {
+        reloadAllRules();
     }
 
     public void reloadAllRules() {
@@ -370,7 +441,26 @@ public class DroolsRuleEngine {
         }
     }
 
-    public Set<String> getLoadedRuleIds() {
+    @Override
+    public Set<Long> getLoadedRuleIds() {
+        return dynamicRules.keySet().stream()
+                .map(id -> {
+                    try {
+                        return Long.parseLong(id);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    @Override
+    public int getLoadedRuleCount() {
+        return dynamicRules.size();
+    }
+
+    public Set<String> getLoadedRuleIdStrings() {
         return new HashSet<>(dynamicRules.keySet());
     }
 

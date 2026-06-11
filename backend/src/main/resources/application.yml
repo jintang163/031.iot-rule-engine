@@ -44,6 +44,20 @@ spring:
       max-file-size: 10MB
       max-request-size: 100MB
 
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: 1
+      retries: 3
+      batch-size: 16384
+      linger-ms: 5
+      buffer-memory: 33554432
+    consumer:
+      group-id: iot-rule-engine-group
+      auto-offset-reset: latest
+
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml,classpath*:com/iot/ruleengine/**/mapper/**/*.xml
   type-aliases-package: com.iot.ruleengine.entity
@@ -83,3 +97,50 @@ logging:
     org.springframework.integration.mqtt: debug
   pattern:
     console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n'
+
+# ===================== 规则引擎核心配置 =====================
+rule:
+  # 规则引擎类型：aviator(表达式引擎，推荐) / drools(Drools规则引擎) / hybrid(混合模式)
+  engine: aviator
+
+  # -------- Flink模式配置 --------
+  flink:
+    # 是否启用Flink分布式模式，false=直接模式在Spring进程内同步执行，true=Flink独立作业
+    enabled: false
+    # Kafka集群地址
+    kafka-bootstrap: localhost:9092
+    # 源topic：设备遥测数据输入
+    source-topic: iot-device-telemetry
+    # 下沉topic：设备控制命令输出（备用，实际走MQTT）
+    sink-topic: iot-device-command
+    # 规则同步接口：从rule-engine服务拉取已启用规则列表
+    rule-sync-url: http://localhost:8080/api/rule/internal/enabled-list
+
+  # -------- 规则编译缓存配置(Caffeine) --------
+  cache:
+    # Aviator表达式编译结果缓存最大条目数
+    compile-max-size: 10000
+    # 规则JSON解析结果缓存最大条目数
+    parse-max-size: 5000
+    # 缓存过期时间（小时）
+    expire-hours: 24
+
+  # -------- 指标监控配置 --------
+  metrics:
+    # 是否开启规则引擎指标采集
+    enabled: true
+    # 是否导出评估延迟直方图（用于Prometheus）
+    export-latency-histogram: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus,metrics"
+  endpoint:
+    prometheus:
+      enabled: true
+    metrics:
+      export:
+        prometheus:
+          enabled: true
