@@ -1,0 +1,46 @@
+import axios from 'axios'
+import { message } from 'antd'
+
+const request = axios.create({
+  baseURL: '/api',
+  timeout: 30000
+})
+
+request.interceptors.request.use(
+  (config) => {
+    config.headers['Content-Type'] = 'application/json'
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
+request.interceptors.response.use(
+  (response) => {
+    const res = response.data
+    if (res && res.code !== undefined) {
+      if (res.code === 200) {
+        return res.data
+      } else {
+        message.error(res.msg || '请求失败')
+        return Promise.reject(new Error(res.msg || '请求失败'))
+      }
+    }
+    return res
+  },
+  (error) => {
+    if (error.response) {
+      const res = error.response.data
+      const errorMsg = (res && res.msg) || error.message || '网络错误'
+      message.error(errorMsg)
+    } else if (error.request) {
+      message.error('服务器无响应，请稍后重试')
+    } else {
+      message.error(error.message || '请求错误')
+    }
+    return Promise.reject(error)
+  }
+)
+
+export default request

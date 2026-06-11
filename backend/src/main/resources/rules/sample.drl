@@ -1,0 +1,36 @@
+package rules;
+
+import com.iot.ruleengine.entity.DeviceData;
+
+rule "温度过高报警"
+    rule-id "temp-high-alert-001"
+    salience 100
+    when
+        $data : DeviceData(
+            temperature != null && temperature > 35.0
+        )
+    then
+        System.out.println("[规则触发] 设备温度过高报警 - 设备ID: " + $data.getDeviceId() + ", 当前温度: " + $data.getTemperature());
+end
+
+rule "低电量提醒"
+    rule-id "battery-low-001"
+    salience 90
+    when
+        $data : DeviceData(
+            batteryLevel != null && batteryLevel < 20
+        )
+    then
+        System.out.println("[规则触发] 设备低电量提醒 - 设备ID: " + $data.getDeviceId() + ", 剩余电量: " + $data.getBatteryLevel() + "%");
+end
+
+rule "设备离线告警"
+    rule-id "device-offline-001"
+    salience 80
+    when
+        $data : DeviceData(
+            status != null && status == 0
+        )
+    then
+        System.out.println("[规则触发] 设备离线告警 - 设备ID: " + $data.getDeviceId());
+end

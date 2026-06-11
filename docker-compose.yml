@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: iot-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: iot_rule_engine_2024
+      MYSQL_DATABASE: iot_rule_engine
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    command:
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --default-authentication-plugin=mysql_native_password
+      --max_connections=1000
+      --innodb-buffer-pool-size=256M
+    volumes:
+      - iot-mysql-data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    networks:
+      - iot-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-piot_rule_engine_2024"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: iot-redis
+    restart: unless-stopped
+    command:
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - iot-redis-data:/data
+    networks:
+      - iot-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  emqx:
+    image: emqx/emqx:5.7.0
+    container_name: iot-emqx
+    restart: unless-stopped
+    environment:
+      EMQX_NODE_NAME: emqx@127.0.0.1
+      EMQX_DASHBOARD__DEFAULT_USERNAME: admin
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: public
+      TZ: Asia/Shanghai
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "8084:8084"
+      - "18083:18083"
+    volumes:
+      - iot-emqx-data:/opt/emqx/data
+      - iot-emqx-log:/opt/emqx/log
+      - iot-emqx-etc:/opt/emqx/etc
+    networks:
+      - iot-net
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+volumes:
+  iot-mysql-data:
+    name: iot-mysql-data
+  iot-redis-data:
+    name: iot-redis-data
+  iot-emqx-data:
+    name: iot-emqx-data
+  iot-emqx-log:
+    name: iot-emqx-log
+  iot-emqx-etc:
+    name: iot-emqx-etc
+
+networks:
+  iot-net:
+    name: iot-net
+    driver: bridge
