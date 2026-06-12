@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  Modal, Form, InputNumber, Button, Space, Card, Tag, Statistic, Row, Col,
+  Modal, Form, InputNumber, Button, Space, Card, Tag, Statistic, Input, Select,
   Switch, message, Typography, Divider
 } from 'antd'
 import { PlayCircleOutlined, PauseCircleOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -33,6 +33,8 @@ function DeviceSimulator({ device, visible, onClose, onRefresh }) {
       const interval = setInterval(fetchStatus, 2000)
       setRefreshInterval(interval)
       form.setFieldsValue({
+        protocol: device.protocol || 'MQTT',
+        httpUrl: '',
         intervalSeconds: 5,
         minTemperature: 15,
         maxTemperature: 40,
@@ -59,6 +61,7 @@ function DeviceSimulator({ device, visible, onClose, onRefresh }) {
       })
       message.success('模拟器已启动')
       fetchStatus()
+      onRefresh?.()
     } catch (error) {
       if (error.errorFields) return
       console.error('启动模拟器失败:', error)
@@ -74,6 +77,7 @@ function DeviceSimulator({ device, visible, onClose, onRefresh }) {
       await stopSimulator(device.deviceId)
       message.success('模拟器已停止')
       fetchStatus()
+      onRefresh?.()
     } catch (error) {
       console.error('停止模拟器失败:', error)
       message.error('停止模拟器失败')
@@ -159,6 +163,18 @@ function DeviceSimulator({ device, visible, onClose, onRefresh }) {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
+                name="protocol"
+                label="上报协议"
+                rules={[{ required: true, message: '请选择上报协议' }]}
+              >
+                <Select>
+                  <Select.Option value="MQTT">MQTT</Select.Option>
+                  <Select.Option value="HTTP">HTTP</Select.Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
                 name="intervalSeconds"
                 label="上报间隔（秒）"
                 rules={[{ required: true, message: '请输入上报间隔' }]}
@@ -167,6 +183,13 @@ function DeviceSimulator({ device, visible, onClose, onRefresh }) {
               </Form.Item>
             </Col>
           </Row>
+
+          <Form.Item
+            name="httpUrl"
+            label="HTTP上报地址（可选，默认自动生成本地地址）"
+          >
+            <Input placeholder="例如: http://localhost:8080/device/data/sensor_001/telemetry" />
+          </Form.Item>
 
           <Divider orientation="left" plain>温度范围</Divider>
 

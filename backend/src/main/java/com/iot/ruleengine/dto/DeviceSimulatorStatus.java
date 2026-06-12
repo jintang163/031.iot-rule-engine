@@ -10,6 +10,10 @@ public class DeviceSimulatorStatus {
 
     private String deviceType;
 
+    private String protocol;
+
+    private String httpUrl;
+
     private Boolean running;
 
     private Integer intervalSeconds;

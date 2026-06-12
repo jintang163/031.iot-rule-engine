@@ -3,10 +3,19 @@ package com.iot.ruleengine.simulator;
 import com.alibaba.fastjson.JSON;
 import com.iot.ruleengine.dto.DeviceSimulatorConfig;
 import com.iot.ruleengine.dto.DeviceSimulatorStatus;
+import com.iot.ruleengine.mqtt.DeviceDataHandler;
 import com.iot.ruleengine.mqtt.MqttClientService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -24,6 +33,14 @@ import java.util.concurrent.TimeUnit;
 public class DeviceSimulatorService {
 
     private final MqttClientService mqttClientService;
+    private final DeviceDataHandler deviceDataHandler;
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    @Value("${server.port:8080}")
+    private String serverPort;
+
+    @Value("${server.servlet.context-path:}")
+    private String contextPath;
 
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(10);
 
@@ -32,8 +49,9 @@ public class DeviceSimulatorService {
     private final Map<String, DeviceSimulatorConfig> configs = new ConcurrentHashMap<>();
 
     @Autowired
-    public DeviceSimulatorService(MqttClientService mqttClientService) {
+    public DeviceSimulatorService(MqttClientService mqttClientService, DeviceDataHandler deviceDataHandler) {
         this.mqttClientService = mqttClientService;
+        this.deviceDataHandler = deviceDataHandler;
     }
 
     @PostConstruct
@@ -57,9 +75,13 @@ public class DeviceSimulatorService {
         stopSimulator(config.getDeviceId());
 
         config.setEnabled(true);
+        if (config.getProtocol() == null) {
+            config.setProtocol("MQTT");
+        }
         configs.put(config.getDeviceId(), config);
 
-        SimulatorTask task = new SimulatorTask(config, mqttClientService);
+        SimulatorTask task = new SimulatorTask(config, mqttClientService, deviceDataHandler,
+                restTemplate, serverPort, contextPath);
         ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(
                 task,
                 0,
@@ -69,8 +91,8 @@ public class DeviceSimulatorService {
         task.setFuture(future);
         runningTasks.put(config.getDeviceId(), task);
 
-        log.info("设备模拟器已启动: deviceId={}, interval={}s",
-                config.getDeviceId(), config.getIntervalSeconds());
+        log.info("设备模拟器已启动: deviceId={}, protocol={}, interval={}s",
+                config.getDeviceId(), config.getProtocol(), config.getIntervalSeconds());
 
         return getStatus(config.getDeviceId());
     }
@@ -99,6 +121,8 @@ public class DeviceSimulatorService {
 
         if (config != null) {
             status.setDeviceType(config.getDeviceType());
+            status.setProtocol(config.getProtocol());
+            status.setHttpUrl(config.getHttpUrl());
             status.setIntervalSeconds(config.getIntervalSeconds());
         }
 
@@ -130,6 +154,10 @@ public class DeviceSimulatorService {
 
         private final DeviceSimulatorConfig config;
         private final MqttClientService mqttClientService;
+        private final DeviceDataHandler deviceDataHandler;
+        private final RestTemplate restTemplate;
+        private final String serverPort;
+        private final String contextPath;
         private volatile boolean running = true;
         private ScheduledFuture<?> future;
         private Double lastTemperature;
@@ -137,9 +165,18 @@ public class DeviceSimulatorService {
         private LocalDateTime lastReportTime;
         private long reportCount = 0;
 
-        public SimulatorTask(DeviceSimulatorConfig config, MqttClientService mqttClientService) {
+        public SimulatorTask(DeviceSimulatorConfig config,
+                             MqttClientService mqttClientService,
+                             DeviceDataHandler deviceDataHandler,
+                             RestTemplate restTemplate,
+                             String serverPort,
+                             String contextPath) {
             this.config = config;
             this.mqttClientService = mqttClientService;
+            this.deviceDataHandler = deviceDataHandler;
+            this.restTemplate = restTemplate;
+            this.serverPort = serverPort;
+            this.contextPath = contextPath;
         }
 
         public void setFuture(ScheduledFuture<?> future) {
@@ -194,21 +231,53 @@ public class DeviceSimulatorService {
                 payload.put("temperature", temperature);
                 payload.put("humidity", humidity);
 
-                String topic = "iot/device/" + config.getDeviceId() + "/telemetry";
                 String jsonPayload = JSON.toJSONString(payload);
 
-                mqttClientService.publish(topic, jsonPayload);
+                if ("HTTP".equalsIgnoreCase(config.getProtocol())) {
+                    sendViaHttp(jsonPayload);
+                } else {
+                    sendViaMqtt(jsonPayload);
+                }
 
                 lastTemperature = temperature;
                 lastHumidity = humidity;
                 lastReportTime = LocalDateTime.now();
                 reportCount++;
 
-                log.debug("模拟器上报数据: deviceId={}, temp={}, humidity={}",
-                        config.getDeviceId(), temperature, humidity);
+                log.debug("模拟器上报数据: deviceId={}, protocol={}, temp={}, humidity={}",
+                        config.getDeviceId(), config.getProtocol(), temperature, humidity);
 
             } catch (Exception e) {
                 log.error("模拟器上报数据失败: deviceId={}", config.getDeviceId(), e);
+            }
+        }
+
+        private void sendViaMqtt(String jsonPayload) {
+            String topic = "iot/device/" + config.getDeviceId() + "/telemetry";
+            mqttClientService.publish(topic, jsonPayload);
+        }
+
+        private void sendViaHttp(String jsonPayload) {
+            String url = config.getHttpUrl();
+            if (url == null || url.isEmpty()) {
+                url = "http://localhost:" + serverPort + contextPath + "/device/data/" + config.getDeviceId() + "/telemetry";
+            }
+
+            try {
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                HttpEntity<String> request = new HttpEntity<>(jsonPayload, headers);
+
+                ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+                if (response.getStatusCode().is2xxSuccessful()) {
+                    log.debug("HTTP上报成功: deviceId={}, url={}", config.getDeviceId(), url);
+                } else {
+                    log.warn("HTTP上报返回非200状态: deviceId={}, status={}",
+                            config.getDeviceId(), response.getStatusCode());
+                }
+            } catch (Exception e) {
+                log.error("HTTP上报失败: deviceId={}, url={}", config.getDeviceId(), url, e);
+                throw e;
             }
         }
     }

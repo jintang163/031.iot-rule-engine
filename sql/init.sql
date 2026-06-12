@@ -34,11 +34,11 @@ CREATE TABLE `rule` (
 -- ALTER TABLE rule ADD COLUMN aviator_actions MEDIUMTEXT COMMENT 'Aviator动作定义JSON' AFTER aviator_expression;
 
 -- ============================================================
--- 2. 设备注册表 (device)
+-- 2. 设备注册表 (iot_device)
 -- 管理所有接入平台的物联网设备元数据及实时状态
 -- ============================================================
-DROP TABLE IF EXISTS `device`;
-CREATE TABLE `device` (
+DROP TABLE IF EXISTS `iot_device`;
+CREATE TABLE `iot_device` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
   `device_id` VARCHAR(100) NOT NULL UNIQUE COMMENT '设备唯一ID(MQTT ClientID)',
   `name` VARCHAR(200) NOT NULL COMMENT '设备名称',
@@ -50,6 +50,7 @@ CREATE TABLE `device` (
   `online` TINYINT DEFAULT 0 COMMENT '1在线 0离线',
   `last_online_time` DATETIME COMMENT '最后在线时间',
   `location` VARCHAR(200) COMMENT '安装位置',
+  `deleted` TINYINT DEFAULT 0 COMMENT '逻辑删除: 0未删除 1已删除',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX `idx_device_id` (`device_id`),
@@ -58,6 +59,14 @@ CREATE TABLE `device` (
   INDEX `idx_room` (`room`),
   INDEX `idx_protocol` (`protocol`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备注册表';
+
+-- 向后兼容：老库从 device 表迁移到 iot_device，以及补充新字段，单独执行以下语句
+-- RENAME TABLE `device` TO `iot_device`;
+-- ALTER TABLE `iot_device` ADD COLUMN `room` VARCHAR(200) COMMENT '所属房间' AFTER `type`;
+-- ALTER TABLE `iot_device` ADD COLUMN `protocol` VARCHAR(20) DEFAULT 'MQTT' COMMENT '通信协议: MQTT/HTTP' AFTER `room`;
+-- ALTER TABLE `iot_device` ADD COLUMN `deleted` TINYINT DEFAULT 0 COMMENT '逻辑删除: 0未删除 1已删除' AFTER `location`;
+-- ALTER TABLE `iot_device` ADD INDEX `idx_room` (`room`);
+-- ALTER TABLE `iot_device` ADD INDEX `idx_protocol` (`protocol`);
 
 -- ============================================================
 -- 3. 动作执行日志表 (action_log)
@@ -86,7 +95,7 @@ CREATE TABLE `action_log` (
 -- ============================================================
 
 -- 设备示例数据（3条）
-INSERT INTO `device` (`device_id`, `name`, `type`, `room`, `protocol`, `actions`, `status`, `online`, `last_online_time`, `location`) VALUES
+INSERT INTO `iot_device` (`device_id`, `name`, `type`, `room`, `protocol`, `actions`, `status`, `online`, `last_online_time`, `location`) VALUES
 ('sensor_temp_001', '客厅温度传感器', 'sensor_temp', '客厅', 'MQTT',
   '["report_temperature", "report_humidity"]',
   '{"temperature": 28, "humidity": 55}',

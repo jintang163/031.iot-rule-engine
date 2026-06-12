@@ -52,6 +52,8 @@ public class DeviceServiceImpl implements DeviceService {
         device.setType(deviceDTO.getType());
         device.setRoom(deviceDTO.getRoom());
         device.setProtocol(deviceDTO.getProtocol() != null ? deviceDTO.getProtocol() : "MQTT");
+        device.setLocation(deviceDTO.getLocation());
+        device.setActions(deviceDTO.getActions());
         device.setOnline(deviceDTO.getOnline() != null ? deviceDTO.getOnline() : 0);
 
         deviceRepository.insert(device);
@@ -77,6 +79,12 @@ public class DeviceServiceImpl implements DeviceService {
         }
         if (StringUtils.hasText(deviceDTO.getProtocol())) {
             existDevice.setProtocol(deviceDTO.getProtocol());
+        }
+        if (StringUtils.hasText(deviceDTO.getLocation())) {
+            existDevice.setLocation(deviceDTO.getLocation());
+        }
+        if (StringUtils.hasText(deviceDTO.getActions())) {
+            existDevice.setActions(deviceDTO.getActions());
         }
         if (deviceDTO.getOnline() != null) {
             existDevice.setOnline(deviceDTO.getOnline());

@@ -91,6 +91,14 @@ public class DeviceDataHandler implements MessageHandler {
         }
     }
 
+    public void processTelemetry(String deviceId, String payload) throws Exception {
+        handleTelemetry(deviceId, payload);
+    }
+
+    public void processStatus(String deviceId, String payload) throws Exception {
+        handleStatus(deviceId, payload);
+    }
+
     private void handleTelemetry(String deviceId, String payload) throws Exception {
         Map<String, Object> telemetry = objectMapper.readValue(payload, new TypeReference<Map<String, Object>>() {});
 

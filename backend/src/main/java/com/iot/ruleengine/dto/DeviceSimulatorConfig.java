@@ -9,6 +9,10 @@ public class DeviceSimulatorConfig {
 
     private String deviceType;
 
+    private String protocol = "MQTT";
+
+    private String httpUrl;
+
     private Integer intervalSeconds = 5;
 
     private Double minTemperature = 15.0;
