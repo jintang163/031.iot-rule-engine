@@ -4,6 +4,9 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.googlecode.aviator.AviatorEvaluatorInstance;
 import com.googlecode.aviator.Expression;
+import com.iot.ruleengine.cep.CooldownService;
+import com.iot.ruleengine.cep.RuleChainService;
+import com.iot.ruleengine.cep.TimeWindowService;
 import com.iot.ruleengine.drools.DeviceData;
 import com.iot.ruleengine.engine.ExpressionContext;
 import com.iot.ruleengine.engine.RuleEngine;
@@ -45,6 +48,12 @@ public class AviatorRuleEngine implements RuleEngine {
 
     private final MeterRegistry meterRegistry;
 
+    private final TimeWindowService timeWindowService;
+
+    private final CooldownService cooldownService;
+
+    private final RuleChainService ruleChainService;
+
     @Lazy
     @Autowired
     private DeviceCommandService deviceCommandService;
@@ -59,12 +68,18 @@ public class AviatorRuleEngine implements RuleEngine {
                              RuleCompilerCache ruleCompilerCache,
                              RuleJsonParseCache ruleJsonParseCache,
                              RuleRepository ruleRepository,
-                             MeterRegistry meterRegistry) {
+                             MeterRegistry meterRegistry,
+                             TimeWindowService timeWindowService,
+                             CooldownService cooldownService,
+                             RuleChainService ruleChainService) {
         this.aviatorEvaluator = aviatorEvaluator;
         this.ruleCompilerCache = ruleCompilerCache;
         this.ruleJsonParseCache = ruleJsonParseCache;
         this.ruleRepository = ruleRepository;
         this.meterRegistry = meterRegistry;
+        this.timeWindowService = timeWindowService;
+        this.cooldownService = cooldownService;
+        this.ruleChainService = ruleChainService;
     }
 
     @PostConstruct
@@ -81,7 +96,7 @@ public class AviatorRuleEngine implements RuleEngine {
                 .description("已触发动作总数")
                 .register(meterRegistry);
 
-        log.info("Aviator规则引擎初始化完成, 使用独立AviatorEvaluatorInstance(线程安全), 已配置Micrometer指标");
+        log.info("Aviator规则引擎初始化完成, 使用独立AviatorEvaluatorInstance(线程安全), 已配置Micrometer指标, CEP已集成");
     }
 
     @Override
@@ -143,6 +158,8 @@ public class AviatorRuleEngine implements RuleEngine {
             return results;
         }
 
+        recordDataPointsForTimeWindow(data);
+
         Map<String, Object> envMap = buildEnvMap(data);
 
         List<CompiledRule> sortedRules = ruleMap.values().stream()
@@ -173,11 +190,36 @@ public class AviatorRuleEngine implements RuleEngine {
             if (Boolean.TRUE.equals(evalResult)) {
                 log.info("规则匹配成功, ruleId: {}, ruleName: {}, deviceId: {}", ruleId, ruleName, data.getDeviceId());
 
+                Rule ruleEntity = getRuleById(ruleId);
+                if (ruleEntity != null) {
+                    if (!evaluateTimeWindow(ruleEntity, data)) {
+                        log.info("时间窗口条件未满足，跳过规则: ruleId={}, ruleName={}",
+                                ruleId, ruleName);
+                        return null;
+                    }
+
+                    int cooldownSeconds = ruleEntity.getCooldownSeconds() != null ? ruleEntity.getCooldownSeconds() : 0;
+                    if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
+                        long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
+                        log.info("规则处于冷却期，跳过动作执行: ruleId={}, ruleName={}, 剩余{}秒",
+                                ruleId, ruleName, remaining);
+                        return null;
+                    }
+                }
+
                 List<DeviceData.ActionRequest> triggeredActions = buildActionRequests(rule, data);
 
                 if (!dryRun && !triggeredActions.isEmpty()) {
                     executeActions(triggeredActions, ruleId, ruleName);
                     actionsTriggeredCounter.increment(triggeredActions.size());
+                }
+
+                if (!dryRun) {
+                    cooldownService.recordTrigger(ruleId);
+
+                    if (ruleEntity != null) {
+                        ruleChainService.processRuleChain(ruleEntity);
+                    }
                 }
 
                 return RuleMatchResult.builder()
@@ -196,6 +238,52 @@ public class AviatorRuleEngine implements RuleEngine {
         }
 
         return null;
+    }
+
+    private void recordDataPointsForTimeWindow(DeviceData data) {
+        if (data == null || timeWindowService == null) {
+            return;
+        }
+
+        String deviceId = data.getDeviceId();
+        if (deviceId == null) {
+            return;
+        }
+
+        if (data.getTemperature() != null) {
+            timeWindowService.recordDataPoint(deviceId, "temperature", data.getTemperature());
+        }
+        if (data.getHumidity() != null) {
+            timeWindowService.recordDataPoint(deviceId, "humidity", data.getHumidity());
+        }
+
+        if (data.getAttributes() != null) {
+            for (Map.Entry<String, Object> entry : data.getAttributes().entrySet()) {
+                Object value = entry.getValue();
+                if (value instanceof Number) {
+                    timeWindowService.recordDataPoint(deviceId, entry.getKey(), ((Number) value).doubleValue());
+                }
+            }
+        }
+    }
+
+    private boolean evaluateTimeWindow(Rule ruleEntity, DeviceData data) {
+        if (ruleEntity == null || data == null || timeWindowService == null) {
+            return true;
+        }
+
+        if (ruleEntity.getWindowEnabled() == null || ruleEntity.getWindowEnabled() != 1) {
+            return true;
+        }
+
+        try {
+            TimeWindowService.WindowResult result = timeWindowService.evaluateWindow(ruleEntity, data);
+            return result.isConditionMet();
+        } catch (Exception e) {
+            log.error("时间窗口评估异常: ruleId={}, ruleName={}, error={}",
+                    ruleEntity.getId(), ruleEntity.getName(), e.getMessage(), e);
+            return false;
+        }
     }
 
     private Map<String, Object> buildEnvMap(DeviceData data) {
@@ -311,6 +399,18 @@ public class AviatorRuleEngine implements RuleEngine {
     @Override
     public Set<Long> getLoadedRuleIds() {
         return new HashSet<>(ruleMap.keySet());
+    }
+
+    private Rule getRuleById(Long ruleId) {
+        if (ruleId == null || ruleRepository == null) {
+            return null;
+        }
+        try {
+            return ruleRepository.selectById(ruleId);
+        } catch (Exception e) {
+            log.error("查询规则异常: ruleId={}, error={}", ruleId, e.getMessage());
+            return null;
+        }
     }
 
     @SuppressWarnings("unchecked")

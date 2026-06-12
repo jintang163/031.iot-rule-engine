@@ -248,40 +248,37 @@ public class DroolsRuleEngine implements RuleEngine {
             log.debug("触发规则数量: firedCount={}", firedCount);
 
             List<DeviceData.ActionRequest> pendingActions = data.getPendingActions();
-            if (pendingActions != null && !pendingActions.isEmpty()) {
-                List<DeviceData.ActionRequest> filteredActions = new ArrayList<>();
+            List<RuleExecutionListener.ExecutionLog> logs = ruleExecutionListener.getExecutionLogs();
 
-                for (DeviceData.ActionRequest actionRequest : pendingActions) {
-                    Long ruleId = parseRuleId(actionRequest.getRuleId());
-                    if (ruleId != null) {
-                        Rule rule = getRuleById(ruleId);
-                        if (rule != null) {
-                            int cooldownSeconds = rule.getCooldownSeconds() != null ? rule.getCooldownSeconds() : 0;
-                            if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
-                                long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
-                                log.info("规则处于冷却期，跳过动作执行: ruleId={}, ruleName={}, 剩余{}秒",
-                                        ruleId, rule.getName(), remaining);
-                                continue;
-                            }
-                        }
+            for (RuleExecutionListener.ExecutionLog logItem : logs) {
+                Long ruleId = parseRuleId(logItem.getRuleId());
+                Rule rule = ruleId != null ? getRuleById(ruleId) : null;
+
+                if (ruleId != null && rule != null) {
+                    boolean timeWindowPassed = evaluateTimeWindow(rule, data);
+                    if (!timeWindowPassed) {
+                        log.info("时间窗口条件未满足，跳过规则: ruleId={}, ruleName={}",
+                                ruleId, rule.getName());
+                        removeActionsByRule(pendingActions, logItem.getRuleId(), logItem.getRuleName());
+                        continue;
                     }
-                    filteredActions.add(actionRequest);
+
+                    int cooldownSeconds = rule.getCooldownSeconds() != null ? rule.getCooldownSeconds() : 0;
+                    if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
+                        long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
+                        log.info("规则处于冷却期，跳过: ruleId={}, ruleName={}, 剩余{}秒",
+                                ruleId, rule.getName(), remaining);
+                        removeActionsByRule(pendingActions, logItem.getRuleId(), logItem.getRuleName());
+                        continue;
+                    }
                 }
 
-                pendingActions.clear();
-                pendingActions.addAll(filteredActions);
+                List<DeviceData.ActionRequest> matchedActions = extractActionsByRule(
+                        pendingActions, logItem.getRuleId(), logItem.getRuleName());
 
-                if (filteredActions.isEmpty()) {
-                    log.info("所有动作被冷却期过滤，无动作执行");
-                } else if (dryRun) {
-                    log.info("DryRun模式: 跳过{}个MQTT指令下发，仅返回动作列表", filteredActions.size());
-                } else if (deviceCommandService != null) {
-                    log.info("规则触发完成，开始执行{}个待落地动作", filteredActions.size());
-                    for (DeviceData.ActionRequest actionRequest : filteredActions) {
+                if (!dryRun && !matchedActions.isEmpty()) {
+                    for (DeviceData.ActionRequest actionRequest : matchedActions) {
                         try {
-                            String ruleIdStr = actionRequest.getRuleId();
-                            String ruleName = actionRequest.getRuleName();
-                            Long ruleId = parseRuleId(ruleIdStr);
                             String targetDeviceId = actionRequest.getTargetDeviceId() != null
                                     ? actionRequest.getTargetDeviceId() : data.getDeviceId();
                             deviceCommandService.sendCommand(
@@ -289,42 +286,19 @@ public class DroolsRuleEngine implements RuleEngine {
                                     actionRequest.getActionType(),
                                     actionRequest.getParams(),
                                     ruleId,
-                                    ruleName
+                                    actionRequest.getRuleName()
                             );
                         } catch (Exception e) {
                             log.error("动作落地失败: actionType={}, targetDeviceId={}, error={}",
                                     actionRequest.getActionType(), actionRequest.getTargetDeviceId(), e.getMessage(), e);
                         }
                     }
-                    log.info("待落地动作执行完成");
                 }
-            }
 
-            List<RuleExecutionListener.ExecutionLog> logs = ruleExecutionListener.getExecutionLogs();
-            for (RuleExecutionListener.ExecutionLog logItem : logs) {
-                Long ruleId = parseRuleId(logItem.getRuleId());
-                if (ruleId != null) {
-                    Rule rule = getRuleById(ruleId);
+                if (!dryRun && ruleId != null) {
+                    cooldownService.recordTrigger(ruleId);
                     if (rule != null) {
-                        boolean timeWindowPassed = evaluateTimeWindow(rule, data);
-                        if (!timeWindowPassed) {
-                            log.info("时间窗口条件未满足，跳过规则: ruleId={}, ruleName={}",
-                                    ruleId, rule.getName());
-                            continue;
-                        }
-
-                        int cooldownSeconds = rule.getCooldownSeconds() != null ? rule.getCooldownSeconds() : 0;
-                        if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
-                            long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
-                            log.info("规则处于冷却期，跳过: ruleId={}, ruleName={}, 剩余{}秒",
-                                    ruleId, rule.getName(), remaining);
-                            continue;
-                        }
-
-                        if (!dryRun) {
-                            cooldownService.recordTrigger(ruleId);
-                            ruleChainService.processRuleChain(rule);
-                        }
+                        ruleChainService.processRuleChain(rule);
                     }
                 }
 
@@ -334,18 +308,6 @@ public class DroolsRuleEngine implements RuleEngine {
                 result.setPackageName(logItem.getPackageName());
                 result.setTriggerTime(logItem.getTriggerTime());
                 result.setDeviceId(data.getDeviceId());
-                List<DeviceData.ActionRequest> matchedActions = new ArrayList<>();
-                if (pendingActions != null) {
-                    for (DeviceData.ActionRequest action : pendingActions) {
-                        boolean ruleIdMatch = (logItem.getRuleId() == null && action.getRuleId() == null)
-                                || (logItem.getRuleId() != null && logItem.getRuleId().equals(action.getRuleId()));
-                        boolean ruleNameMatch = (logItem.getRuleName() == null && action.getRuleName() == null)
-                                || (logItem.getRuleName() != null && logItem.getRuleName().equals(action.getRuleName()));
-                        if (ruleIdMatch || ruleNameMatch) {
-                            matchedActions.add(action);
-                        }
-                    }
-                }
                 result.setTriggeredActions(matchedActions);
                 results.add(result);
             }
@@ -363,6 +325,38 @@ public class DroolsRuleEngine implements RuleEngine {
         }
 
         return results;
+    }
+
+    private void removeActionsByRule(List<DeviceData.ActionRequest> pendingActions,
+                                     String ruleId, String ruleName) {
+        if (pendingActions == null) {
+            return;
+        }
+        pendingActions.removeIf(action -> {
+            boolean ruleIdMatch = (ruleId == null && action.getRuleId() == null)
+                    || (ruleId != null && ruleId.equals(action.getRuleId()));
+            boolean ruleNameMatch = (ruleName == null && action.getRuleName() == null)
+                    || (ruleName != null && ruleName.equals(action.getRuleName()));
+            return ruleIdMatch || ruleNameMatch;
+        });
+    }
+
+    private List<DeviceData.ActionRequest> extractActionsByRule(List<DeviceData.ActionRequest> pendingActions,
+                                                                String ruleId, String ruleName) {
+        List<DeviceData.ActionRequest> matched = new ArrayList<>();
+        if (pendingActions == null) {
+            return matched;
+        }
+        for (DeviceData.ActionRequest action : pendingActions) {
+            boolean ruleIdMatch = (ruleId == null && action.getRuleId() == null)
+                    || (ruleId != null && ruleId.equals(action.getRuleId()));
+            boolean ruleNameMatch = (ruleName == null && action.getRuleName() == null)
+                    || (ruleName != null && ruleName.equals(action.getRuleName()));
+            if (ruleIdMatch || ruleNameMatch) {
+                matched.add(action);
+            }
+        }
+        return matched;
     }
 
     public boolean removeRule(String ruleId) {

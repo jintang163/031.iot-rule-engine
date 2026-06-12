@@ -4,6 +4,9 @@ import com.googlecode.aviator.AviatorEvaluator;
 import com.googlecode.aviator.AviatorEvaluatorInstance;
 import com.googlecode.aviator.Feature;
 import com.googlecode.aviator.Options;
+import com.iot.ruleengine.cep.CooldownService;
+import com.iot.ruleengine.cep.RuleChainService;
+import com.iot.ruleengine.cep.TimeWindowService;
 import com.iot.ruleengine.drools.DroolsRuleEngine;
 import com.iot.ruleengine.drools.RuleExecutionListener;
 import com.iot.ruleengine.drools.RuleParser;
@@ -75,14 +78,20 @@ public class EngineConfig {
                                            @Lazy RuleCompilerCache ruleCompilerCache,
                                            @Lazy RuleJsonParseCache ruleJsonParseCache,
                                            @Lazy RuleRepository ruleRepository,
-                                           @Lazy MeterRegistry meterRegistry) {
-        log.info("创建AviatorRuleEngine - Aviator规则引擎实现");
+                                           @Lazy MeterRegistry meterRegistry,
+                                           @Lazy TimeWindowService timeWindowService,
+                                           @Lazy CooldownService cooldownService,
+                                           @Lazy RuleChainService ruleChainService) {
+        log.info("创建AviatorRuleEngine - Aviator规则引擎实现(含CEP)");
         return new AviatorRuleEngine(
                 aviatorEvaluator,
                 ruleCompilerCache,
                 ruleJsonParseCache,
                 ruleRepository,
-                meterRegistry
+                meterRegistry,
+                timeWindowService,
+                cooldownService,
+                ruleChainService
         );
     }
 
@@ -91,13 +100,19 @@ public class EngineConfig {
     public DroolsRuleEngine droolsRuleEngine(KieServices kieServices,
                                             KieContainer kieContainer,
                                             RuleExecutionListener ruleExecutionListener,
-                                            RuleParser ruleParser) {
-        log.info("创建DroolsRuleEngine - Drools规则引擎实现");
+                                            RuleParser ruleParser,
+                                            @Lazy TimeWindowService timeWindowService,
+                                            @Lazy CooldownService cooldownService,
+                                            @Lazy RuleChainService ruleChainService) {
+        log.info("创建DroolsRuleEngine - Drools规则引擎实现(含CEP)");
         return new DroolsRuleEngine(
                 kieServices,
                 kieContainer,
                 ruleExecutionListener,
-                ruleParser
+                ruleParser,
+                timeWindowService,
+                cooldownService,
+                ruleChainService
         );
     }
 
