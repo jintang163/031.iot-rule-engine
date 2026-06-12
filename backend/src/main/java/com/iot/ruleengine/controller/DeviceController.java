@@ -5,11 +5,15 @@ import com.iot.ruleengine.dto.DeviceDTO;
 import com.iot.ruleengine.dto.PageResult;
 import com.iot.ruleengine.dto.Result;
 import com.iot.ruleengine.entity.Device;
+import com.iot.ruleengine.excel.DeviceExcelService;
 import com.iot.ruleengine.service.DeviceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.http.HttpServletResponse;
 import javax.validation.Valid;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,10 +24,12 @@ import java.util.Map;
 public class DeviceController {
 
     private final DeviceService deviceService;
+    private final DeviceExcelService deviceExcelService;
 
     @Autowired
-    public DeviceController(DeviceService deviceService) {
+    public DeviceController(DeviceService deviceService, DeviceExcelService deviceExcelService) {
         this.deviceService = deviceService;
+        this.deviceExcelService = deviceExcelService;
     }
 
     @PostMapping
@@ -57,13 +63,17 @@ public class DeviceController {
             @RequestParam(required = false) String deviceId,
             @RequestParam(required = false) String name,
             @RequestParam(required = false) String type,
-            @RequestParam(required = false) Integer online) {
+            @RequestParam(required = false) Integer online,
+            @RequestParam(required = false) String room,
+            @RequestParam(required = false) String protocol) {
         Page<Device> page = new Page<>(pageNum, pageSize);
         Map<String, Object> params = new HashMap<>();
         params.put("deviceId", deviceId);
         params.put("name", name);
         params.put("type", type);
         params.put("online", online);
+        params.put("room", room);
+        params.put("protocol", protocol);
         Page<Device> result = deviceService.listDevices(page, params);
         return Result.success(PageResult.of(result));
     }
@@ -100,5 +110,21 @@ public class DeviceController {
     public Result<List<Device>> listOnlineDevices() {
         List<Device> devices = deviceService.listOnlineDevices();
         return Result.success(devices);
+    }
+
+    @GetMapping("/export")
+    public void exportDevices(HttpServletResponse response) throws IOException {
+        deviceExcelService.exportDevices(response);
+    }
+
+    @PostMapping("/import")
+    public Result<Map<String, Object>> importDevices(@RequestParam("file") MultipartFile file) throws IOException {
+        Map<String, Object> result = deviceExcelService.importDevices(file);
+        return Result.success(result, "导入完成");
+    }
+
+    @GetMapping("/import/template")
+    public void exportTemplate(HttpServletResponse response) throws IOException {
+        deviceExcelService.exportTemplate(response);
     }
 }

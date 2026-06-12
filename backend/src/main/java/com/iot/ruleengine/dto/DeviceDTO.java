@@ -14,6 +14,10 @@ public class DeviceDTO {
 
     private String type;
 
+    private String room;
+
+    private String protocol;
+
     private String actions;
 
     private String status;

@@ -116,10 +116,27 @@ export const getStatusColor = (status) => {
   return colorMap[status] || '#8c8c8c'
 }
 
+export const formatDateTime = (date) => {
+  if (!date) return '-'
+  return formatDate(date, 'YYYY-MM-DD HH:mm:ss')
+}
+
+export const downloadBlob = (blob, filename) => {
+  const url = window.URL.createObjectURL(new Blob([blob]))
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', filename)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+}
+
 export default {
   generateId,
   generateNodeId,
   formatDate,
+  formatDateTime,
   formatRelativeTime,
   debounce,
   throttle,
@@ -127,5 +144,6 @@ export default {
   validateExpression,
   validateMqttTopic,
   bytesToSize,
-  getStatusColor
+  getStatusColor,
+  downloadBlob
 }

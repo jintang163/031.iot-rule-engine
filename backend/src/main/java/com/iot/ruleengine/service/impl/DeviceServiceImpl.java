@@ -50,6 +50,8 @@ public class DeviceServiceImpl implements DeviceService {
         device.setDeviceId(deviceDTO.getDeviceId());
         device.setName(deviceDTO.getName());
         device.setType(deviceDTO.getType());
+        device.setRoom(deviceDTO.getRoom());
+        device.setProtocol(deviceDTO.getProtocol() != null ? deviceDTO.getProtocol() : "MQTT");
         device.setOnline(deviceDTO.getOnline() != null ? deviceDTO.getOnline() : 0);
 
         deviceRepository.insert(device);
@@ -69,6 +71,12 @@ public class DeviceServiceImpl implements DeviceService {
         }
         if (StringUtils.hasText(deviceDTO.getType())) {
             existDevice.setType(deviceDTO.getType());
+        }
+        if (StringUtils.hasText(deviceDTO.getRoom())) {
+            existDevice.setRoom(deviceDTO.getRoom());
+        }
+        if (StringUtils.hasText(deviceDTO.getProtocol())) {
+            existDevice.setProtocol(deviceDTO.getProtocol());
         }
         if (deviceDTO.getOnline() != null) {
             existDevice.setOnline(deviceDTO.getOnline());
@@ -113,6 +121,12 @@ public class DeviceServiceImpl implements DeviceService {
             }
             if (params.containsKey("online") && params.get("online") != null) {
                 queryWrapper.eq("online", params.get("online"));
+            }
+            if (params.containsKey("room") && StringUtils.hasText((String) params.get("room"))) {
+                queryWrapper.like("room", params.get("room"));
+            }
+            if (params.containsKey("protocol") && StringUtils.hasText((String) params.get("protocol"))) {
+                queryWrapper.eq("protocol", params.get("protocol"));
             }
         }
 

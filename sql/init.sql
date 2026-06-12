@@ -43,6 +43,8 @@ CREATE TABLE `device` (
   `device_id` VARCHAR(100) NOT NULL UNIQUE COMMENT '设备唯一ID(MQTT ClientID)',
   `name` VARCHAR(200) NOT NULL COMMENT '设备名称',
   `type` VARCHAR(50) NOT NULL COMMENT '设备类型: aircon/light/sensor_temp/sensor_humidity/sensor_presence',
+  `room` VARCHAR(200) COMMENT '所属房间',
+  `protocol` VARCHAR(20) DEFAULT 'MQTT' COMMENT '通信协议: MQTT/HTTP',
   `actions` JSON COMMENT '支持的动作列表JSON',
   `status` JSON COMMENT '当前状态JSON如{"power":"off","temperature":26}',
   `online` TINYINT DEFAULT 0 COMMENT '1在线 0离线',
@@ -52,7 +54,9 @@ CREATE TABLE `device` (
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX `idx_device_id` (`device_id`),
   INDEX `idx_type` (`type`),
-  INDEX `idx_online` (`online`)
+  INDEX `idx_online` (`online`),
+  INDEX `idx_room` (`room`),
+  INDEX `idx_protocol` (`protocol`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备注册表';
 
 -- ============================================================
@@ -82,16 +86,16 @@ CREATE TABLE `action_log` (
 -- ============================================================
 
 -- 设备示例数据（3条）
-INSERT INTO `device` (`device_id`, `name`, `type`, `actions`, `status`, `online`, `last_online_time`, `location`) VALUES
-('sensor_temp_001', '客厅温度传感器', 'sensor_temp',
+INSERT INTO `device` (`device_id`, `name`, `type`, `room`, `protocol`, `actions`, `status`, `online`, `last_online_time`, `location`) VALUES
+('sensor_temp_001', '客厅温度传感器', 'sensor_temp', '客厅', 'MQTT',
   '["report_temperature", "report_humidity"]',
   '{"temperature": 28, "humidity": 55}',
   1, NOW(), '客厅-吊顶'),
-('sensor_presence_001', '客厅人体传感器', 'sensor_presence',
+('sensor_presence_001', '客厅人体传感器', 'sensor_presence', '客厅', 'MQTT',
   '["report_presence"]',
   '{"presence": false}',
   1, NOW(), '客厅-门口'),
-('aircon_living_001', '客厅空调', 'aircon',
+('aircon_living_001', '客厅空调', 'aircon', '客厅', 'MQTT',
   '["turn_on", "turn_off", "set_temperature", "set_mode"]',
   '{"power": "off", "temperature": 26, "mode": "cool"}',
   1, NOW(), '客厅-墙面');

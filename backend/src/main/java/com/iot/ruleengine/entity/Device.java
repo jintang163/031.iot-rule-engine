@@ -20,6 +20,12 @@ public class Device {
     @TableField("type")
     private String type;
 
+    @TableField("room")
+    private String room;
+
+    @TableField("protocol")
+    private String protocol;
+
     @TableField("actions")
     private String actions;
 

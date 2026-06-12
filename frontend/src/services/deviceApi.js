@@ -28,6 +28,48 @@ export const getOnlineDevices = () => {
   return request.get('/device/online')
 }
 
+export const exportDevices = () => {
+  return request.get('/device/export', {
+    responseType: 'blob'
+  })
+}
+
+export const importDevices = (file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/device/import', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+}
+
+export const downloadImportTemplate = () => {
+  return request.get('/device/import/template', {
+    responseType: 'blob'
+  })
+}
+
+export const startSimulator = (config) => {
+  return request.post('/device/simulator/start', config)
+}
+
+export const stopSimulator = (deviceId) => {
+  return request.post(`/device/simulator/stop/${deviceId}`)
+}
+
+export const getSimulatorStatus = (deviceId) => {
+  return request.get(`/device/simulator/status/${deviceId}`)
+}
+
+export const getAllSimulatorStatus = () => {
+  return request.get('/device/simulator/status')
+}
+
+export const getSimulatorConfig = (deviceId) => {
+  return request.get(`/device/simulator/config/${deviceId}`)
+}
+
 export default {
   getDeviceList,
   getDeviceById,
@@ -35,5 +77,13 @@ export default {
   updateDevice,
   deleteDevice,
   controlDevice,
-  getOnlineDevices
+  getOnlineDevices,
+  exportDevices,
+  importDevices,
+  downloadImportTemplate,
+  startSimulator,
+  stopSimulator,
+  getSimulatorStatus,
+  getAllSimulatorStatus,
+  getSimulatorConfig
 }
