@@ -189,14 +189,17 @@ function RuleEditor() {
           <Canvas />
         </Content>
         <Sider
-          width={340}
+          width={360}
           style={{
             background: '#fafbfc',
             borderLeft: '1px solid #eef0f3',
-            overflow: 'hidden'
+            overflow: 'auto'
           }}
         >
-          <ConfigPanel />
+          <div style={{ padding: '12px 12px 24px 12px' }}>
+            <ConfigPanel />
+            <DebugPanel />
+          </div>
         </Sider>
       </Layout>
 
