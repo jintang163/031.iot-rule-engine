@@ -653,3 +653,27 @@ a:hover {
     display: none;
   }
 }
+
+.recommendation-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.recommendation-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(22, 119, 255, 0.15) !important;
+  border-color: #1677ff !important;
+}
+
+.recommendation-card:hover .recommendation-icon {
+  transform: scale(1.1);
+}
+
+.recommendation-icon {
+  transition: transform 0.3s ease;
+}
+
+@media (max-width: 576px) {
+  .recommendation-card {
+    margin-bottom: 12px;
+  }
+}

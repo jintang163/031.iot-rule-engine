@@ -6,6 +6,7 @@ import { getRuleList, deleteRule, enableRule, disableRule, createRule } from '..
 import { getStatistics } from '../services/logApi'
 import useAppStore from '../store/useAppStore'
 import { formatDate } from '../utils'
+import RecommendationSection from '../components/recommendation/RecommendationSection'
 
 const { Option } = Select
 
@@ -94,6 +95,11 @@ function RuleList() {
       pageSize: paginationState.pageSize,
       total: paginationState.total
     })
+  }
+
+  const handleRuleCreated = () => {
+    fetchRuleList()
+    fetchStats()
   }
 
   const handleEdit = (record) => {
@@ -263,6 +269,8 @@ function RuleList() {
           </Card>
         ))}
       </div>
+
+      <RecommendationSection onRuleCreated={handleRuleCreated} />
 
       <Card bordered={false} style={{ borderRadius: 8, marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>

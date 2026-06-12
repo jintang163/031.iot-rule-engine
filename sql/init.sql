@@ -120,7 +120,7 @@ CREATE TABLE `action_log` (
 -- 示例数据插入
 -- ============================================================
 
--- 设备示例数据（3条）
+-- 设备示例数据（扩展版）
 INSERT INTO `iot_device` (`device_id`, `name`, `type`, `room`, `protocol`, `actions`, `status`, `online`, `last_online_time`, `location`) VALUES
 ('sensor_temp_001', '客厅温度传感器', 'sensor_temp', '客厅', 'MQTT',
   '["report_temperature", "report_humidity"]',
@@ -133,7 +133,27 @@ INSERT INTO `iot_device` (`device_id`, `name`, `type`, `room`, `protocol`, `acti
 ('aircon_living_001', '客厅空调', 'aircon', '客厅', 'MQTT',
   '["turn_on", "turn_off", "set_temperature", "set_mode"]',
   '{"power": "off", "temperature": 26, "mode": "cool"}',
-  1, NOW(), '客厅-墙面');
+  1, NOW(), '客厅-墙面'),
+('light_living_001', '客厅主灯', 'light', '客厅', 'MQTT',
+  '["turn_on", "turn_off", "set_brightness"]',
+  '{"power": "on", "brightness": 80}',
+  1, NOW(), '客厅-吊顶'),
+('light_bedroom_001', '卧室主灯', 'light', '卧室', 'MQTT',
+  '["turn_on", "turn_off", "set_brightness"]',
+  '{"power": "off", "brightness": 100}',
+  1, NOW(), '卧室-吊顶'),
+('sensor_presence_002', '卧室人体传感器', 'sensor_presence', '卧室', 'MQTT',
+  '["report_presence"]',
+  '{"presence": true}',
+  1, NOW(), '卧室-门口'),
+('sensor_temp_002', '卧室温度传感器', 'sensor_temp', '卧室', 'MQTT',
+  '["report_temperature", "report_humidity"]',
+  '{"temperature": 26, "humidity": 50}',
+  1, NOW(), '卧室-墙面'),
+('curtain_living_001', '客厅窗帘', 'curtain', '客厅', 'MQTT',
+  '["open", "close", "set_position"]',
+  '{"position": 50}',
+  1, NOW(), '客厅-窗户');
 
 -- 规则示例数据（1条：温度>30度且房间无人时自动开空调）
 INSERT INTO `rule` (`name`, `description`, `rule_json`, `drl_content`, `status`, `priority`, `mutex_group`) VALUES
@@ -195,12 +215,64 @@ end',
 
 1, 10, 'climate_control');
 
--- 动作执行日志示例数据（几条）
+-- 动作执行日志示例数据（含大量手动操作，用于AI推荐分析）
 INSERT INTO `action_log` (`rule_id`, `rule_name`, `action_type`, `action_params`, `device_id`, `result`, `retry_count`, `error_msg`, `execute_time`) VALUES
+-- 规则触发的动作
 (1, '高温无人自动开空调', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
 (1, '高温无人自动开空调', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
 (1, '高温无人自动开空调', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 0, 2, '设备响应超时，MQTT未收到ACK', DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
-(NULL, '手动触发', 'set_temperature', '{"temperature": 24}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 10 MINUTE));
+
+-- 手动操作：频繁手动关灯（客厅） - 用于推荐"无人时自动关灯"
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY + INTERVAL 2 HOUR)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY + INTERVAL 3 HOUR)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 3 DAY + INTERVAL 1 HOUR)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 5 DAY)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 6 DAY)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 7 DAY)),
+
+-- 手动操作：频繁手动关灯（卧室） - 用于推荐"无人时自动关灯"
+(NULL, '手动触发', 'turn_off', '{}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY + INTERVAL 1 HOUR)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY + INTERVAL 1 HOUR)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 3 DAY + INTERVAL 2 HOUR)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 4 DAY + INTERVAL 1 HOUR)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 5 DAY + INTERVAL 2 HOUR)),
+(NULL, '手动触发', 'turn_off', '{}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 6 DAY + INTERVAL 1 HOUR)),
+
+-- 手动操作：频繁手动开灯（客厅） - 用于推荐"有人时自动开灯"
+(NULL, '手动触发', 'turn_on', '{"brightness": 80}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY + INTERVAL 12 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"brightness": 80}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY + INTERVAL 12 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"brightness": 80}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 3 DAY + INTERVAL 12 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"brightness": 80}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 4 DAY + INTERVAL 12 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"brightness": 80}', 'light_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 5 DAY + INTERVAL 12 HOUR)),
+
+-- 手动操作：频繁手动开空调 - 用于推荐"高温自动开空调"
+(NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY + INTERVAL 6 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY + INTERVAL 6 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 3 DAY + INTERVAL 6 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 4 DAY + INTERVAL 6 HOUR)),
+(NULL, '手动触发', 'set_temperature', '{"temperature": 24}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 10 MINUTE)),
+
+-- 手动操作：频繁手动关窗帘 - 用于推荐"夜间自动关窗帘"
+(NULL, '手动触发', 'close', '{}', 'curtain_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY + INTERVAL 20 HOUR)),
+(NULL, '手动触发', 'close', '{}', 'curtain_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY + INTERVAL 20 HOUR)),
+(NULL, '手动触发', 'close', '{}', 'curtain_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 3 DAY + INTERVAL 20 HOUR)),
+(NULL, '手动触发', 'close', '{}', 'curtain_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 4 DAY + INTERVAL 20 HOUR)),
+(NULL, '手动触发', 'close', '{}', 'curtain_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 5 DAY + INTERVAL 20 HOUR)),
+(NULL, '手动触发', 'close', '{}', 'curtain_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 6 DAY + INTERVAL 20 HOUR)),
+
+-- 手动操作：联动操作（开灯和开空调高度相关）- 用于协同过滤推荐
+(NULL, '手动触发', 'turn_on', '{"brightness": 100}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY + INTERVAL 8 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY + INTERVAL 8 HOUR + INTERVAL 5 MINUTE)),
+(NULL, '手动触发', 'turn_on', '{"brightness": 100}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY + INTERVAL 8 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY + INTERVAL 8 HOUR + INTERVAL 5 MINUTE)),
+(NULL, '手动触发', 'turn_on', '{"brightness": 100}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 3 DAY + INTERVAL 8 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 3 DAY + INTERVAL 8 HOUR + INTERVAL 5 MINUTE)),
+(NULL, '手动触发', 'turn_on', '{"brightness": 100}', 'light_bedroom_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 4 DAY + INTERVAL 8 HOUR)),
+(NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 4 DAY + INTERVAL 8 HOUR + INTERVAL 5 MINUTE));
 
 -- ============================================================
 -- MQTT 主题约定说明
