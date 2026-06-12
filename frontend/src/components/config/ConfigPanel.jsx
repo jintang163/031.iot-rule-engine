@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Card, Form, Input, Select, InputNumber, Switch, Divider, Typography, Space, Empty, Tag, Slider, Radio, TimePicker } from 'antd'
+import { Card, Form, Input, Select, InputNumber, Switch, Divider, Typography, Space, Empty, Tag, Slider, Radio, TimePicker, Collapse, Alert } from 'antd'
 import {
   SettingOutlined,
   EnvironmentOutlined,
@@ -13,7 +13,10 @@ import {
   BulbOutlined,
   NotificationOutlined,
   PlayCircleOutlined,
-  StopOutlined
+  StopOutlined,
+  RiseOutlined,
+  PauseCircleOutlined,
+  LinkOutlined
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import useRuleStore from '../../store/useRuleStore.js'
@@ -68,6 +71,36 @@ const alertLevelOptions = [
   { value: 'error', label: '严重', color: '#ff4d4f' }
 ]
 
+const windowTypeOptions = [
+  { value: 'TUMBLING', label: '滚动窗口 (Tumbling)', desc: '固定时间间隔，不重叠' },
+  { value: 'SLIDING', label: '滑动窗口 (Sliding)', desc: '按步长滑动，可重叠' },
+  { value: 'SESSION', label: '会话窗口 (Session)', desc: '基于数据活跃度' }
+]
+
+const aggregationOptions = [
+  { value: 'SUM', label: '求和 (SUM)' },
+  { value: 'AVG', label: '平均值 (AVG)' },
+  { value: 'MAX', label: '最大值 (MAX)' },
+  { value: 'MIN', label: '最小值 (MIN)' },
+  { value: 'COUNT', label: '计数 (COUNT)' },
+  { value: 'DELTA', label: '差值 (DELTA)' }
+]
+
+const windowFieldOptions = [
+  { value: 'temperature', label: '温度 (temperature)' },
+  { value: 'humidity', label: '湿度 (humidity)' }
+]
+
+const windowOperatorOptions = [
+  { value: '>', label: '大于 (>)' },
+  { value: '<', label: '小于 (<)' },
+  { value: '>=', label: '大于等于 (≥)' },
+  { value: '<=', label: '小于等于 (≤)' },
+  { value: '==', label: '等于 (==)' }
+]
+
+const { Panel } = Collapse
+
 function SectionHeader({ icon: Icon, title, color, subtitle }) {
   return (
     <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -103,7 +136,18 @@ function RuleInfoPanel() {
       ...ruleInfo,
       priority: ruleInfo.priority ?? 5,
       status: typeof ruleInfo.status === 'number' ? ruleInfo.status : (ruleInfo.status === 'active' || ruleInfo.status === 'enabled' ? 1 : 0),
-      mutexGroup: ruleInfo.mutexGroup || ''
+      mutexGroup: ruleInfo.mutexGroup || '',
+      windowEnabled: ruleInfo.windowEnabled ?? 0,
+      windowType: ruleInfo.windowType || 'TUMBLING',
+      windowDuration: ruleInfo.windowDuration ?? 600,
+      windowAggregation: ruleInfo.windowAggregation || 'DELTA',
+      windowField: ruleInfo.windowField || 'temperature',
+      windowOperator: ruleInfo.windowOperator || '>',
+      windowThreshold: ruleInfo.windowThreshold ?? 5,
+      cooldownSeconds: ruleInfo.cooldownSeconds ?? 0,
+      chainTriggerEnabled: ruleInfo.chainTriggerEnabled ?? 0,
+      chainNextRuleIds: ruleInfo.chainNextRuleIds || '',
+      chainDisableSelf: ruleInfo.chainDisableSelf ?? 0
     })
   }, [ruleInfo.id])
 
@@ -215,6 +259,219 @@ function RuleInfoPanel() {
               tooltip={{ formatter: (v) => `优先级 ${v}` }}
             />
           </Form.Item>
+        </Form>
+      </Card>
+
+      <Card
+        size="small"
+        bordered={false}
+        style={{ marginTop: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
+        bodyStyle={{ padding: 16 }}
+      >
+        <SectionHeader
+          icon={RiseOutlined}
+          title="时间窗口"
+          color="#fa8c16"
+          subtitle="支持时间窗口类复杂事件处理"
+        />
+
+        <Form
+          form={form}
+          layout="vertical"
+          onValuesChange={handleValuesChange}
+        >
+          <Form.Item
+            label={
+              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                <span>启用时间窗口</span>
+                <Tag color={ruleInfo.windowEnabled === 1 ? 'green' : 'default'}>
+                  {ruleInfo.windowEnabled === 1 ? '已启用' : '未启用'}
+                </Tag>
+              </Space>
+            }
+            name="windowEnabled"
+            valuePropName="checked"
+            style={{ marginBottom: 16 }}
+          >
+            <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+          </Form.Item>
+
+          {ruleInfo.windowEnabled === 1 && (
+            <>
+              <Alert
+                message="示例：10分钟内温度上升超过5度且无人则告警"
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+
+              <Form.Item
+                label="窗口类型"
+                name="windowType"
+                style={{ marginBottom: 16 }}
+              >
+                <Select options={windowTypeOptions.map(o => ({ value: o.value, label: o.label }))} />
+              </Form.Item>
+
+              <Form.Item
+                label={
+                  <Space>
+                    <span>窗口时长</span>
+                    <Text type="secondary">秒</Text>
+                  </Space>
+                }
+                name="windowDuration"
+                style={{ marginBottom: 16 }}
+                extra="例如：600秒 = 10分钟"
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={1}
+                  max={86400}
+                  step={60}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label="聚合函数"
+                name="windowAggregation"
+                style={{ marginBottom: 16 }}
+              >
+                <Select options={aggregationOptions.map(o => ({ value: o.value, label: o.label }))} />
+              </Form.Item>
+
+              <Form.Item
+                label="监控字段"
+                name="windowField"
+                style={{ marginBottom: 16 }}
+              >
+                <Select options={windowFieldOptions.map(o => ({ value: o.value, label: o.label }))} />
+              </Form.Item>
+
+              <Form.Item
+                label="比较运算符"
+                name="windowOperator"
+                style={{ marginBottom: 16 }}
+              >
+                <Select options={windowOperatorOptions.map(o => ({ value: o.value, label: o.label }))} />
+              </Form.Item>
+
+              <Form.Item
+                label="阈值"
+                name="windowThreshold"
+                style={{ marginBottom: 0 }}
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  step={0.5}
+                  min={-1000}
+                  max={1000}
+                />
+              </Form.Item>
+            </>
+          )}
+        </Form>
+      </Card>
+
+      <Card
+        size="small"
+        bordered={false}
+        style={{ marginTop: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
+        bodyStyle={{ padding: 16 }}
+      >
+        <SectionHeader
+          icon={PauseCircleOutlined}
+          title="重复触发间隔"
+          color="#13c2c2"
+          subtitle="防止动作频繁执行"
+        />
+
+        <Form
+          form={form}
+          layout="vertical"
+          onValuesChange={handleValuesChange}
+        >
+          <Form.Item
+            label={
+              <Space>
+                <span>冷却时间</span>
+                <Text type="secondary">秒</Text>
+                {ruleInfo.cooldownSeconds > 0 && (
+                  <Tag color="cyan">{ruleInfo.cooldownSeconds}秒内只触发一次</Tag>
+                )}
+              </Space>
+            }
+            name="cooldownSeconds"
+            style={{ marginBottom: 0 }}
+            extra="例如：60秒 = 空调1分钟内只响应一次。0表示不限制。"
+          >
+            <InputNumber
+              style={{ width: '100%' }}
+              min={0}
+              max={86400}
+              step={10}
+              placeholder="0表示无冷却"
+            />
+          </Form.Item>
+        </Form>
+      </Card>
+
+      <Card
+        size="small"
+        bordered={false}
+        style={{ marginTop: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
+        bodyStyle={{ padding: 16 }}
+      >
+        <SectionHeader
+          icon={LinkOutlined}
+          title="规则链"
+          color="#722ed1"
+          subtitle="规则触发后启用/禁用其他规则"
+        />
+
+        <Form
+          form={form}
+          layout="vertical"
+          onValuesChange={handleValuesChange}
+        >
+          <Form.Item
+            label={
+              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                <span>启用规则链</span>
+                <Tag color={ruleInfo.chainTriggerEnabled === 1 ? 'purple' : 'default'}>
+                  {ruleInfo.chainTriggerEnabled === 1 ? '已启用' : '未启用'}
+                </Tag>
+              </Space>
+            }
+            name="chainTriggerEnabled"
+            valuePropName="checked"
+            style={{ marginBottom: 16 }}
+          >
+            <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+          </Form.Item>
+
+          {ruleInfo.chainTriggerEnabled === 1 && (
+            <>
+              <Form.Item
+                label="下一规则ID列表"
+                name="chainNextRuleIds"
+                style={{ marginBottom: 16 }}
+                extra="多个规则用逗号分隔，例如：2,5,8"
+              >
+                <Input placeholder="例如：2,5,8" />
+              </Form.Item>
+
+              <Form.Item
+                label="触发后禁用自身"
+                name="chainDisableSelf"
+                valuePropName="checked"
+                style={{ marginBottom: 0 }}
+                extra="当前规则触发后自动禁用自身，由下一规则接管"
+              >
+                <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+              </Form.Item>
+            </>
+          )}
         </Form>
       </Card>
     </div>

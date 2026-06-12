@@ -18,4 +18,26 @@ public class RuleDTO {
     private Integer priority;
 
     private String mutexGroup;
+
+    private Integer windowEnabled;
+
+    private String windowType;
+
+    private Integer windowDuration;
+
+    private String windowAggregation;
+
+    private String windowField;
+
+    private String windowOperator;
+
+    private java.math.BigDecimal windowThreshold;
+
+    private Integer cooldownSeconds;
+
+    private Integer chainTriggerEnabled;
+
+    private String chainNextRuleIds;
+
+    private Integer chainDisableSelf;
 }

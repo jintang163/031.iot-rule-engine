@@ -35,6 +35,28 @@ public class RuleDetailVO {
 
     private Map<String, Object> ruleInfo;
 
+    private Integer windowEnabled;
+
+    private String windowType;
+
+    private Integer windowDuration;
+
+    private String windowAggregation;
+
+    private String windowField;
+
+    private String windowOperator;
+
+    private java.math.BigDecimal windowThreshold;
+
+    private Integer cooldownSeconds;
+
+    private Integer chainTriggerEnabled;
+
+    private String chainNextRuleIds;
+
+    private Integer chainDisableSelf;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

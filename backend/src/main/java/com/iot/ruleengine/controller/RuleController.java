@@ -169,6 +169,17 @@ public class RuleController {
         vo.setDrlContent(rule.getDrlContent());
         vo.setAviatorExpression(rule.getAviatorExpression() != null ? rule.getAviatorExpression() : "");
         vo.setAviatorActions(rule.getAviatorActions() != null ? rule.getAviatorActions() : "");
+        vo.setWindowEnabled(rule.getWindowEnabled());
+        vo.setWindowType(rule.getWindowType());
+        vo.setWindowDuration(rule.getWindowDuration());
+        vo.setWindowAggregation(rule.getWindowAggregation());
+        vo.setWindowField(rule.getWindowField());
+        vo.setWindowOperator(rule.getWindowOperator());
+        vo.setWindowThreshold(rule.getWindowThreshold());
+        vo.setCooldownSeconds(rule.getCooldownSeconds());
+        vo.setChainTriggerEnabled(rule.getChainTriggerEnabled());
+        vo.setChainNextRuleIds(rule.getChainNextRuleIds());
+        vo.setChainDisableSelf(rule.getChainDisableSelf());
         vo.setCreateTime(rule.getCreateTime());
         vo.setUpdateTime(rule.getUpdateTime());
 

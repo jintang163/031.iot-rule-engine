@@ -20,18 +20,44 @@ CREATE TABLE `rule` (
   `drl_content` MEDIUMTEXT COMMENT 'Drools DRL规则内容',
   `aviator_expression` MEDIUMTEXT COMMENT 'Aviator表达式' AFTER drl_content,
   `aviator_actions` MEDIUMTEXT COMMENT 'Aviator动作定义JSON' AFTER aviator_expression,
+  `window_enabled` TINYINT DEFAULT 0 COMMENT '是否启用时间窗口: 0否 1是',
+  `window_type` VARCHAR(20) DEFAULT 'TUMBLING' COMMENT '窗口类型: TUMBLING(滚动)/SLIDING(滑动)/SESSION(会话)',
+  `window_duration` INT DEFAULT 60 COMMENT '窗口时长(秒)',
+  `window_aggregation` VARCHAR(50) COMMENT '窗口聚合函数: SUM/AVG/MAX/MIN/COUNT/DELTA(差值)',
+  `window_field` VARCHAR(100) COMMENT '窗口聚合字段: temperature/humidity等',
+  `window_operator` VARCHAR(10) COMMENT '窗口比较运算符: >/</>=/<=/==',
+  `window_threshold` DECIMAL(10,2) COMMENT '窗口比较阈值',
+  `cooldown_seconds` INT DEFAULT 0 COMMENT '重复触发冷却时间(秒), 0表示不限制',
+  `chain_trigger_enabled` TINYINT DEFAULT 0 COMMENT '是否启用规则链触发: 0否 1是',
+  `chain_next_rule_ids` VARCHAR(500) COMMENT '规则链: 本规则触发后启用的规则ID列表(逗号分隔)',
+  `chain_disable_self` TINYINT DEFAULT 0 COMMENT '规则触发后是否禁用自身: 0否 1是',
   `status` TINYINT DEFAULT 1 COMMENT '1启用 0禁用',
   `priority` INT DEFAULT 5 COMMENT '优先级1-10',
   `mutex_group` VARCHAR(100) COMMENT '互斥规则组名',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX `idx_status` (`status`),
-  INDEX `idx_mutex_group` (`mutex_group`)
+  INDEX `idx_mutex_group` (`mutex_group`),
+  INDEX `idx_window_enabled` (`window_enabled`),
+  INDEX `idx_chain_enabled` (`chain_trigger_enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='规则表';
 
--- 向后兼容：如果是老库升级，单独执行这两条ALTER
+-- 向后兼容：老库升级ALTER语句
 -- ALTER TABLE rule ADD COLUMN aviator_expression MEDIUMTEXT COMMENT 'Aviator表达式' AFTER drl_content;
 -- ALTER TABLE rule ADD COLUMN aviator_actions MEDIUMTEXT COMMENT 'Aviator动作定义JSON' AFTER aviator_expression;
+-- ALTER TABLE rule ADD COLUMN `window_enabled` TINYINT DEFAULT 0 COMMENT '是否启用时间窗口' AFTER aviator_actions;
+-- ALTER TABLE rule ADD COLUMN `window_type` VARCHAR(20) DEFAULT 'TUMBLING' COMMENT '窗口类型' AFTER window_enabled;
+-- ALTER TABLE rule ADD COLUMN `window_duration` INT DEFAULT 60 COMMENT '窗口时长(秒)' AFTER window_type;
+-- ALTER TABLE rule ADD COLUMN `window_aggregation` VARCHAR(50) COMMENT '窗口聚合函数' AFTER window_duration;
+-- ALTER TABLE rule ADD COLUMN `window_field` VARCHAR(100) COMMENT '窗口聚合字段' AFTER window_aggregation;
+-- ALTER TABLE rule ADD COLUMN `window_operator` VARCHAR(10) COMMENT '窗口比较运算符' AFTER window_field;
+-- ALTER TABLE rule ADD COLUMN `window_threshold` DECIMAL(10,2) COMMENT '窗口比较阈值' AFTER window_operator;
+-- ALTER TABLE rule ADD COLUMN `cooldown_seconds` INT DEFAULT 0 COMMENT '重复触发冷却时间(秒)' AFTER window_threshold;
+-- ALTER TABLE rule ADD COLUMN `chain_trigger_enabled` TINYINT DEFAULT 0 COMMENT '是否启用规则链触发' AFTER cooldown_seconds;
+-- ALTER TABLE rule ADD COLUMN `chain_next_rule_ids` VARCHAR(500) COMMENT '规则链: 触发后启用的规则ID列表' AFTER chain_trigger_enabled;
+-- ALTER TABLE rule ADD COLUMN `chain_disable_self` TINYINT DEFAULT 0 COMMENT '触发后是否禁用自身' AFTER chain_next_rule_ids;
+-- ALTER TABLE rule ADD INDEX `idx_window_enabled` (`window_enabled`);
+-- ALTER TABLE rule ADD INDEX `idx_chain_enabled` (`chain_trigger_enabled`);
 
 -- ============================================================
 -- 2. 设备注册表 (iot_device)

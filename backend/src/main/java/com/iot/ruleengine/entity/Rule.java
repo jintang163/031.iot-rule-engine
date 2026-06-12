@@ -38,6 +38,39 @@ public class Rule {
     @TableField("mutex_group")
     private String mutexGroup;
 
+    @TableField("window_enabled")
+    private Integer windowEnabled;
+
+    @TableField("window_type")
+    private String windowType;
+
+    @TableField("window_duration")
+    private Integer windowDuration;
+
+    @TableField("window_aggregation")
+    private String windowAggregation;
+
+    @TableField("window_field")
+    private String windowField;
+
+    @TableField("window_operator")
+    private String windowOperator;
+
+    @TableField("window_threshold")
+    private java.math.BigDecimal windowThreshold;
+
+    @TableField("cooldown_seconds")
+    private Integer cooldownSeconds;
+
+    @TableField("chain_trigger_enabled")
+    private Integer chainTriggerEnabled;
+
+    @TableField("chain_next_rule_ids")
+    private String chainNextRuleIds;
+
+    @TableField("chain_disable_self")
+    private Integer chainDisableSelf;
+
     @TableField("create_time")
     private LocalDateTime createTime;
 

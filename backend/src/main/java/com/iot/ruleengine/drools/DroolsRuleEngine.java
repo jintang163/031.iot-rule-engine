@@ -1,6 +1,9 @@
 package com.iot.ruleengine.drools;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.iot.ruleengine.cep.CooldownService;
+import com.iot.ruleengine.cep.RuleChainService;
+import com.iot.ruleengine.cep.TimeWindowService;
 import com.iot.ruleengine.engine.RuleEngine;
 import com.iot.ruleengine.entity.Rule;
 import com.iot.ruleengine.mqtt.DeviceCommandService;
@@ -39,6 +42,12 @@ public class DroolsRuleEngine implements RuleEngine {
 
     private final RuleParser ruleParser;
 
+    private final TimeWindowService timeWindowService;
+
+    private final CooldownService cooldownService;
+
+    private final RuleChainService ruleChainService;
+
     private RuleRepository ruleRepository;
 
     @Lazy
@@ -51,11 +60,16 @@ public class DroolsRuleEngine implements RuleEngine {
     private final Object lock = new Object();
 
     public DroolsRuleEngine(KieServices kieServices, KieContainer kieContainer,
-                            RuleExecutionListener ruleExecutionListener, RuleParser ruleParser) {
+                            RuleExecutionListener ruleExecutionListener, RuleParser ruleParser,
+                            TimeWindowService timeWindowService, CooldownService cooldownService,
+                            RuleChainService ruleChainService) {
         this.kieServices = kieServices;
         this.kieContainer = kieContainer;
         this.ruleExecutionListener = ruleExecutionListener;
         this.ruleParser = ruleParser;
+        this.timeWindowService = timeWindowService;
+        this.cooldownService = cooldownService;
+        this.ruleChainService = ruleChainService;
     }
 
     @Autowired
@@ -224,6 +238,8 @@ public class DroolsRuleEngine implements RuleEngine {
 
         List<RuleExecutionResult> results = new ArrayList<>();
 
+        recordDataPointsForTimeWindow(data);
+
         try {
             int factCount = kieSession.insert(data);
             log.debug("插入Fact数量: {}", factCount);
@@ -233,22 +249,39 @@ public class DroolsRuleEngine implements RuleEngine {
 
             List<DeviceData.ActionRequest> pendingActions = data.getPendingActions();
             if (pendingActions != null && !pendingActions.isEmpty()) {
-                if (dryRun) {
-                    log.info("DryRun模式: 跳过{}个MQTT指令下发，仅返回动作列表", pendingActions.size());
+                List<DeviceData.ActionRequest> filteredActions = new ArrayList<>();
+
+                for (DeviceData.ActionRequest actionRequest : pendingActions) {
+                    Long ruleId = parseRuleId(actionRequest.getRuleId());
+                    if (ruleId != null) {
+                        Rule rule = getRuleById(ruleId);
+                        if (rule != null) {
+                            int cooldownSeconds = rule.getCooldownSeconds() != null ? rule.getCooldownSeconds() : 0;
+                            if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
+                                long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
+                                log.info("规则处于冷却期，跳过动作执行: ruleId={}, ruleName={}, 剩余{}秒",
+                                        ruleId, rule.getName(), remaining);
+                                continue;
+                            }
+                        }
+                    }
+                    filteredActions.add(actionRequest);
+                }
+
+                pendingActions.clear();
+                pendingActions.addAll(filteredActions);
+
+                if (filteredActions.isEmpty()) {
+                    log.info("所有动作被冷却期过滤，无动作执行");
+                } else if (dryRun) {
+                    log.info("DryRun模式: 跳过{}个MQTT指令下发，仅返回动作列表", filteredActions.size());
                 } else if (deviceCommandService != null) {
-                    log.info("规则触发完成，开始执行{}个待落地动作", pendingActions.size());
-                    for (DeviceData.ActionRequest actionRequest : pendingActions) {
+                    log.info("规则触发完成，开始执行{}个待落地动作", filteredActions.size());
+                    for (DeviceData.ActionRequest actionRequest : filteredActions) {
                         try {
                             String ruleIdStr = actionRequest.getRuleId();
                             String ruleName = actionRequest.getRuleName();
-                            Long ruleId = null;
-                            if (ruleIdStr != null && !"null".equalsIgnoreCase(ruleIdStr)) {
-                                try {
-                                    ruleId = Long.parseLong(ruleIdStr);
-                                } catch (NumberFormatException e) {
-                                    log.debug("ruleId格式转换失败: {}", ruleIdStr);
-                                }
-                            }
+                            Long ruleId = parseRuleId(ruleIdStr);
                             String targetDeviceId = actionRequest.getTargetDeviceId() != null
                                     ? actionRequest.getTargetDeviceId() : data.getDeviceId();
                             deviceCommandService.sendCommand(
@@ -269,6 +302,32 @@ public class DroolsRuleEngine implements RuleEngine {
 
             List<RuleExecutionListener.ExecutionLog> logs = ruleExecutionListener.getExecutionLogs();
             for (RuleExecutionListener.ExecutionLog logItem : logs) {
+                Long ruleId = parseRuleId(logItem.getRuleId());
+                if (ruleId != null) {
+                    Rule rule = getRuleById(ruleId);
+                    if (rule != null) {
+                        boolean timeWindowPassed = evaluateTimeWindow(rule, data);
+                        if (!timeWindowPassed) {
+                            log.info("时间窗口条件未满足，跳过规则: ruleId={}, ruleName={}",
+                                    ruleId, rule.getName());
+                            continue;
+                        }
+
+                        int cooldownSeconds = rule.getCooldownSeconds() != null ? rule.getCooldownSeconds() : 0;
+                        if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
+                            long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
+                            log.info("规则处于冷却期，跳过: ruleId={}, ruleName={}, 剩余{}秒",
+                                    ruleId, rule.getName(), remaining);
+                            continue;
+                        }
+
+                        if (!dryRun) {
+                            cooldownService.recordTrigger(ruleId);
+                            ruleChainService.processRuleChain(rule);
+                        }
+                    }
+                }
+
                 RuleExecutionResult result = new RuleExecutionResult();
                 result.setRuleId(logItem.getRuleId());
                 result.setRuleName(logItem.getRuleName());
@@ -491,6 +550,75 @@ public class DroolsRuleEngine implements RuleEngine {
         }
         dynamicRules.clear();
         log.info("Drools规则引擎销毁完成");
+    }
+
+    private void recordDataPointsForTimeWindow(DeviceData data) {
+        if (data == null || timeWindowService == null) {
+            return;
+        }
+
+        String deviceId = data.getDeviceId();
+        if (deviceId == null) {
+            return;
+        }
+
+        if (data.getTemperature() != null) {
+            timeWindowService.recordDataPoint(deviceId, "temperature", data.getTemperature());
+        }
+        if (data.getHumidity() != null) {
+            timeWindowService.recordDataPoint(deviceId, "humidity", data.getHumidity());
+        }
+
+        if (data.getAttributes() != null) {
+            for (Map.Entry<String, Object> entry : data.getAttributes().entrySet()) {
+                Object value = entry.getValue();
+                if (value instanceof Number) {
+                    timeWindowService.recordDataPoint(deviceId, entry.getKey(), ((Number) value).doubleValue());
+                }
+            }
+        }
+    }
+
+    private boolean evaluateTimeWindow(Rule rule, DeviceData data) {
+        if (rule == null || data == null || timeWindowService == null) {
+            return true;
+        }
+
+        if (rule.getWindowEnabled() == null || rule.getWindowEnabled() != 1) {
+            return true;
+        }
+
+        try {
+            TimeWindowService.WindowResult result = timeWindowService.evaluateWindow(rule, data);
+            return result.isConditionMet();
+        } catch (Exception e) {
+            log.error("时间窗口评估异常: ruleId={}, ruleName={}, error={}",
+                    rule.getId(), rule.getName(), e.getMessage(), e);
+            return false;
+        }
+    }
+
+    private Long parseRuleId(String ruleIdStr) {
+        if (ruleIdStr == null || "null".equalsIgnoreCase(ruleIdStr) || ruleIdStr.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(ruleIdStr.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Rule getRuleById(Long ruleId) {
+        if (ruleId == null || ruleRepository == null) {
+            return null;
+        }
+        try {
+            return ruleRepository.selectById(ruleId);
+        } catch (Exception e) {
+            log.error("查询规则异常: ruleId={}, error={}", ruleId, e.getMessage());
+            return null;
+        }
     }
 
     public static class RuleExecutionResult {
