@@ -41,42 +41,59 @@ const { Title } = Typography
 function App() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, logout, hasRole } = useAuth()
+  const { user, logout, hasRole, hasPerm } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
   const [mqttConnected, setMqttConnected] = useState(true)
 
-  const menuItems = [
-    {
+  const menuItems = []
+
+  if (hasPerm('rule:view')) {
+    menuItems.push({
       key: '/rules',
       icon: <DashboardOutlined />,
       label: '规则列表'
-    },
-    {
+    })
+  }
+
+  if (hasPerm('rule:edit')) {
+    menuItems.push({
       key: '/rule/new',
       icon: <ThunderboltOutlined />,
       label: '规则编辑器'
-    },
-    {
+    })
+  }
+
+  if (hasPerm('rule:view')) {
+    menuItems.push({
       key: '/templates',
       icon: <AppstoreOutlined />,
       label: '场景模板库'
-    },
-    {
+    })
+  }
+
+  if (hasPerm('device:view')) {
+    menuItems.push({
       key: '/devices',
       icon: <ApiOutlined />,
       label: '设备管理'
-    },
-    {
+    })
+  }
+
+  if (hasPerm('rule:view')) {
+    menuItems.push({
       key: '/logs',
       icon: <FileTextOutlined />,
       label: '执行日志'
-    },
-    {
+    })
+  }
+
+  if (hasPerm('stats:view')) {
+    menuItems.push({
       key: '/stats',
       icon: <BarChartOutlined />,
       label: '统计与成本'
-    }
-  ]
+    })
+  }
 
   if (hasRole(['SUPER_ADMIN', 'TENANT_ADMIN'])) {
     const systemChildren = []

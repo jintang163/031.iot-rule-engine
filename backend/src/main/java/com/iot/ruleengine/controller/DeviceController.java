@@ -6,6 +6,7 @@ import com.iot.ruleengine.dto.PageResult;
 import com.iot.ruleengine.dto.Result;
 import com.iot.ruleengine.entity.Device;
 import com.iot.ruleengine.excel.DeviceExcelService;
+import com.iot.ruleengine.security.RequirePermission;
 import com.iot.ruleengine.service.DeviceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +22,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/device")
 @CrossOrigin(origins = "*", maxAge = 3600)
+@RequirePermission("device:view")
 public class DeviceController {
 
     private final DeviceService deviceService;
@@ -33,18 +35,21 @@ public class DeviceController {
     }
 
     @PostMapping
+    @RequirePermission("device:edit")
     public Result<Device> saveDevice(@Valid @RequestBody DeviceDTO deviceDTO) {
         Device device = deviceService.saveDevice(deviceDTO);
         return Result.success(device);
     }
 
     @PutMapping
+    @RequirePermission("device:edit")
     public Result<Device> updateDevice(@Valid @RequestBody DeviceDTO deviceDTO) {
         Device device = deviceService.updateDevice(deviceDTO);
         return Result.success(device);
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission("device:edit")
     public Result<Void> deleteDevice(@PathVariable Long id) {
         deviceService.deleteDevice(id);
         return Result.success();
@@ -79,6 +84,7 @@ public class DeviceController {
     }
 
     @PutMapping("/{deviceId}/control")
+    @RequirePermission("device:edit")
     public Result<Map<String, Object>> controlDevice(
             @PathVariable String deviceId,
             @RequestBody Map<String, Object> body) {

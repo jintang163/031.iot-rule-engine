@@ -15,6 +15,9 @@ public class Rule {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    @TableField("tenant_id")
+    private Long tenantId;
+
     private String name;
 
     private String description;

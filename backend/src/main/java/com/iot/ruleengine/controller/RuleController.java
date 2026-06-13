@@ -29,6 +29,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/rule")
 @CrossOrigin(origins = "*", maxAge = 3600)
+@RequirePermission("rule:view")
 public class RuleController {
 
     private final RuleService ruleService;
@@ -45,18 +46,21 @@ public class RuleController {
     }
 
     @PostMapping
+    @RequirePermission("rule:edit")
     public Result<RuleDetailVO> saveRule(@Valid @RequestBody RuleDTO ruleDTO) {
         Rule rule = ruleService.saveRule(ruleDTO);
         return Result.success(convertToDetailVO(rule));
     }
 
     @PutMapping
+    @RequirePermission("rule:edit")
     public Result<RuleDetailVO> updateRule(@Valid @RequestBody RuleDTO ruleDTO) {
         Rule rule = ruleService.updateRule(ruleDTO);
         return Result.success(convertToDetailVO(rule));
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission("rule:edit")
     public Result<Void> deleteRule(@PathVariable Long id) {
         ruleService.deleteRule(id);
         return Result.success();
@@ -85,24 +89,28 @@ public class RuleController {
     }
 
     @PutMapping("/{id}/enable")
+    @RequirePermission("rule:edit")
     public Result<Void> enableRule(@PathVariable Long id) {
         ruleService.enableRule(id);
         return Result.success();
     }
 
     @PutMapping("/{id}/disable")
+    @RequirePermission("rule:edit")
     public Result<Void> disableRule(@PathVariable Long id) {
         ruleService.disableRule(id);
         return Result.success();
     }
 
     @PostMapping("/test")
+    @RequirePermission("rule:test")
     public Result<List<Map<String, Object>>> testRule(@Valid @RequestBody RuleTestDTO ruleTestDTO) {
         List<Map<String, Object>> result = ruleService.testRule(ruleTestDTO);
         return Result.success(result);
     }
 
     @PostMapping("/sandbox-test")
+    @RequirePermission("rule:test")
     public Result<Map<String, Object>> sandboxTest(@RequestBody SandboxTestRequest request) {
         log.info("沙箱测试请求: ruleId={}, sensorData={}", request.getRuleId(), request.getSensorData());
         Map<String, Object> result = ruleService.sandboxTest(request);

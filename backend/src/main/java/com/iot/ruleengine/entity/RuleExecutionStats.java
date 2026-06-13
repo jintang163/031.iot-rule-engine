@@ -17,6 +17,9 @@ public class RuleExecutionStats {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    @TableField("tenant_id")
+    private Long tenantId;
+
     @TableField("rule_id")
     private Long ruleId;
 
