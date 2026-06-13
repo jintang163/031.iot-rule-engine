@@ -25,7 +25,8 @@ import {
   UserOutlined,
   WifiOutlined,
   BulbOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  BarChartOutlined
 } from '@ant-design/icons'
 
 const { Header, Sider, Content, Footer } = Layout
@@ -62,6 +63,11 @@ function App() {
       key: '/logs',
       icon: <FileTextOutlined />,
       label: '执行日志'
+    },
+    {
+      key: '/stats',
+      icon: <BarChartOutlined />,
+      label: '统计与成本'
     }
   ]
 
@@ -72,6 +78,7 @@ function App() {
     if (path === '/templates') return '/templates'
     if (path === '/devices') return '/devices'
     if (path === '/logs') return '/logs'
+    if (path === '/stats') return '/stats'
     return '/rules'
   }
 

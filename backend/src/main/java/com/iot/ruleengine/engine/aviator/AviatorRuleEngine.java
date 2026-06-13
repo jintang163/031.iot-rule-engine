@@ -15,6 +15,7 @@ import com.iot.ruleengine.engine.cache.RuleJsonParseCache;
 import com.iot.ruleengine.entity.Rule;
 import com.iot.ruleengine.mqtt.DeviceCommandService;
 import com.iot.ruleengine.repository.RuleRepository;
+import com.iot.ruleengine.stats.RuleStatsService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -57,6 +58,9 @@ public class AviatorRuleEngine implements RuleEngine {
     @Lazy
     @Autowired
     private DeviceCommandService deviceCommandService;
+
+    @Autowired(required = false)
+    private RuleStatsService ruleStatsService;
 
     private Counter rulesRegisteredCounter;
 
@@ -183,6 +187,7 @@ public class AviatorRuleEngine implements RuleEngine {
         final Long ruleId = rule.getRuleId();
         final String ruleName = rule.getRuleName();
 
+        long startNanos = System.nanoTime();
         Timer.Sample sample = Timer.start(meterRegistry);
         try {
             Object evalResult = rulesEvaluationTimer.recordCallable(() ->
@@ -223,6 +228,20 @@ public class AviatorRuleEngine implements RuleEngine {
 
                     if (ruleEntity != null) {
                         ruleChainService.processRuleChain(ruleEntity);
+                    }
+                }
+
+                long executionMs = (System.nanoTime() - startNanos) / 1_000_000L;
+                if (!dryRun && ruleStatsService != null && ruleId != null) {
+                    try {
+                        List<String> actionTypes = new ArrayList<>();
+                        for (DeviceData.ActionRequest req : triggeredActions) {
+                            actionTypes.add(req.getActionType());
+                        }
+                        ruleStatsService.recordExecution(ruleId, ruleName, executionMs,
+                                triggeredActions.size(), actionTypes);
+                    } catch (Exception e) {
+                        log.warn("记录规则执行统计失败, ruleId={}", ruleId, e);
                     }
                 }
 

@@ -103,6 +103,25 @@ rule:
   # 规则引擎类型：aviator(表达式引擎，推荐) / drools(Drools规则引擎) / hybrid(混合模式)
   engine: aviator
 
+  # -------- 能耗成本估算配置 --------
+  cost:
+    # 电费单价 (元/度)
+    electricity-price-per-kwh: 0.61
+    # 每次触发估算运行时长 (分钟)
+    avg-runtime-minutes-per-trigger: 30
+    # 常见设备/动作的功率 (kW)，按动作类型键匹配，包含匹配也生效
+    device-power-kw:
+      aircon: 1.5
+      air_conditioner: 1.5
+      turn_on_aircon: 1.5
+      heater: 2.0
+      turn_on_heater: 2.0
+      light: 0.06
+      turn_on_light: 0.06
+      fan: 0.05
+      turn_on_fan: 0.05
+      default: 0.1
+
   # -------- Flink模式配置 --------
   flink:
     # 是否启用Flink分布式模式，false=直接模式在Spring进程内同步执行，true=Flink独立作业

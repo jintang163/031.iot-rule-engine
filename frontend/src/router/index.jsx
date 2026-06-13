@@ -5,6 +5,7 @@ import RuleEditor from '../pages/RuleEditor.jsx'
 import DeviceManager from '../pages/DeviceManager.jsx'
 import ActionLog from '../pages/ActionLog.jsx'
 import TemplateLibrary from '../pages/TemplateLibrary.jsx'
+import RuleStatsPage from '../pages/RuleStatsPage.jsx'
 
 const router = createBrowserRouter([
   {
@@ -38,6 +39,10 @@ const router = createBrowserRouter([
       {
         path: 'templates',
         element: <TemplateLibrary />
+      },
+      {
+        path: 'stats',
+        element: <RuleStatsPage />
       },
       {
         path: '*',
