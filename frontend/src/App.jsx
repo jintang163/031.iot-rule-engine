@@ -24,7 +24,8 @@ import {
   LogoutOutlined,
   UserOutlined,
   WifiOutlined,
-  BulbOutlined
+  BulbOutlined,
+  AppstoreOutlined
 } from '@ant-design/icons'
 
 const { Header, Sider, Content, Footer } = Layout
@@ -48,6 +49,11 @@ function App() {
       label: '规则编辑器'
     },
     {
+      key: '/templates',
+      icon: <AppstoreOutlined />,
+      label: '场景模板库'
+    },
+    {
       key: '/devices',
       icon: <ApiOutlined />,
       label: '设备管理'
@@ -63,6 +69,7 @@ function App() {
     const path = location.pathname
     if (path.startsWith('/rule/')) return '/rule/new'
     if (path === '/rules') return '/rules'
+    if (path === '/templates') return '/templates'
     if (path === '/devices') return '/devices'
     if (path === '/logs') return '/logs'
     return '/rules'

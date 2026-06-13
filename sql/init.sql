@@ -275,6 +275,57 @@ INSERT INTO `action_log` (`rule_id`, `rule_name`, `action_type`, `action_params`
 (NULL, '手动触发', 'turn_on', '{"temperature": 26, "mode": "cool"}', 'aircon_living_001', 1, 0, NULL, DATE_SUB(NOW(), INTERVAL 4 DAY + INTERVAL 8 HOUR + INTERVAL 5 MINUTE));
 
 -- ============================================================
+-- 4. 场景模板表 (rule_template)
+-- 存储场景模板定义，包括内置模板和用户自定义模板
+-- ============================================================
+DROP TABLE IF EXISTS `rule_template`;
+CREATE TABLE `rule_template` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
+  `name` VARCHAR(200) NOT NULL COMMENT '模板名称',
+  `description` VARCHAR(500) COMMENT '模板描述',
+  `icon` VARCHAR(50) COMMENT '模板图标标识',
+  `category` VARCHAR(50) NOT NULL COMMENT '模板分类: energy_saving/away/security/custom',
+  `rule_json` MEDIUMTEXT COMMENT 'JSON格式规则定义（前端画布）',
+  `rule_config` MEDIUMTEXT COMMENT '规则配置快照JSON（含条件、动作、窗口等完整配置）',
+  `scope` VARCHAR(20) DEFAULT 'public' COMMENT '可见范围: public/team/private',
+  `source_type` VARCHAR(20) DEFAULT 'system' COMMENT '来源类型: system(系统内置)/user(用户自建)',
+  `source_rule_id` BIGINT COMMENT '来源规则ID（用户从已有规则保存为模板时记录）',
+  `author_id` VARCHAR(100) COMMENT '创建者ID',
+  `author_name` VARCHAR(100) COMMENT '创建者名称',
+  `version` VARCHAR(30) DEFAULT '1.0.0' COMMENT '版本标记',
+  `review_status` TINYINT DEFAULT 1 COMMENT '审核状态: 0待审核 1已通过 2已拒绝',
+  `reviewer_id` VARCHAR(100) COMMENT '审核人ID',
+  `review_time` DATETIME COMMENT '审核时间',
+  `review_remark` VARCHAR(500) COMMENT '审核备注',
+  `apply_count` INT DEFAULT 0 COMMENT '应用次数',
+  `status` TINYINT DEFAULT 1 COMMENT '1启用 0禁用',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX `idx_category` (`category`),
+  INDEX `idx_scope` (`scope`),
+  INDEX `idx_source_type` (`source_type`),
+  INDEX `idx_review_status` (`review_status`),
+  INDEX `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='场景模板表';
+
+-- 预置场景模板数据
+INSERT INTO `rule_template` (`name`, `description`, `icon`, `category`, `rule_json`, `rule_config`, `scope`, `source_type`, `version`, `review_status`, `apply_count`, `status`) VALUES
+('节能模式', '智能节能场景：温度超标自动空调制冷、无人时自动关灯关空调，实现自动节能', '🔋', 'energy_saving',
+'{"nodes":[{"id":"start","type":"startNode","position":{"x":50,"y":150},"data":{"label":"触发开始"}},{"id":"cond_temp","type":"conditionNode","position":{"x":250,"y":80},"data":{"label":"温度>30°C","deviceId":"sensor_temp_001","field":"temperature","operator":">","value":30}},{"id":"cond_presence","type":"conditionNode","position":{"x":250,"y":220},"data":{"label":"无人","deviceId":"sensor_presence_001","field":"presence","operator":"==","value":false}},{"id":"logic_and","type":"logicNode","position":{"x":450,"y":150},"data":{"label":"AND","type":"AND"}},{"id":"action_aircon","type":"actionNode","position":{"x":650,"y":150},"data":{"label":"开空调26°C制冷","deviceId":"aircon_living_001","action":"turn_on","params":{"temperature":26,"mode":"cool"}}},{"id":"action_light_off","type":"actionNode","position":{"x":650,"y":300},"data":{"label":"关灯","deviceId":"light_living_001","action":"turn_off","params":{}}}],"edges":[{"id":"e1","source":"start","target":"logic_and","sourceHandle":"out"},{"id":"e2","source":"cond_temp","target":"logic_and","sourceHandle":"out","targetHandle":"in1"},{"id":"e3","source":"cond_presence","target":"logic_and","sourceHandle":"out","targetHandle":"in2"},{"id":"e4","source":"logic_and","target":"action_aircon","sourceHandle":"out"},{"id":"e5","source":"cond_presence","target":"action_light_off","sourceHandle":"out"}]}',
+'{"conditions":[{"deviceId":"sensor_temp_001","field":"temperature","operator":">","value":30,"label":"温度>30°C"},{"deviceId":"sensor_presence_001","field":"presence","operator":"==","value":false,"label":"无人"}],"actions":[{"deviceId":"aircon_living_001","action":"turn_on","params":{"temperature":26,"mode":"cool"},"label":"开空调26°C制冷"},{"deviceId":"light_living_001","action":"turn_off","params":{},"label":"关灯"}],"logic":"AND"}',
+'public', 'system', '1.0.0', 1, 128, 1),
+
+('离家模式', '离家场景：检测到无人后自动关闭所有灯光、空调，关闭窗帘，保障节能与安全', '🏠', 'away',
+'{"nodes":[{"id":"start","type":"startNode","position":{"x":50,"y":150},"data":{"label":"触发开始"}},{"id":"cond_no_presence","type":"conditionNode","position":{"x":250,"y":150},"data":{"label":"无人","deviceId":"sensor_presence_001","field":"presence","operator":"==","value":false}},{"id":"action_light_off","type":"actionNode","position":{"x":500,"y":50},"data":{"label":"关灯","deviceId":"light_living_001","action":"turn_off","params":{}}},{"id":"action_aircon_off","type":"actionNode","position":{"x":500,"y":150},"data":{"label":"关空调","deviceId":"aircon_living_001","action":"turn_off","params":{}}},{"id":"action_curtain_close","type":"actionNode","position":{"x":500,"y":250},"data":{"label":"关窗帘","deviceId":"curtain_living_001","action":"close","params":{}}}],"edges":[{"id":"e1","source":"start","target":"cond_no_presence","sourceHandle":"out"},{"id":"e2","source":"cond_no_presence","target":"action_light_off","sourceHandle":"out"},{"id":"e3","source":"cond_no_presence","target":"action_aircon_off","sourceHandle":"out"},{"id":"e4","source":"cond_no_presence","target":"action_curtain_close","sourceHandle":"out"}]}',
+'{"conditions":[{"deviceId":"sensor_presence_001","field":"presence","operator":"==","value":false,"label":"无人"}],"actions":[{"deviceId":"light_living_001","action":"turn_off","params":{},"label":"关灯"},{"deviceId":"aircon_living_001","action":"turn_off","params":{},"label":"关空调"},{"deviceId":"curtain_living_001","action":"close","params":{},"label":"关窗帘"}],"logic":"AND"}',
+'public', 'system', '1.0.0', 1, 86, 1),
+
+('安防模式', '安防场景：检测到异常人员活动时自动开灯、发送告警，同时关闭窗帘保护隐私', '🛡️', 'security',
+'{"nodes":[{"id":"start","type":"startNode","position":{"x":50,"y":150},"data":{"label":"触发开始"}},{"id":"cond_presence","type":"conditionNode","position":{"x":250,"y":150},"data":{"label":"有人活动","deviceId":"sensor_presence_001","field":"presence","operator":"==","value":true}},{"id":"cond_night","type":"conditionNode","position":{"x":250,"y":280},"data":{"label":"夜间时段","deviceId":"sensor_temp_001","field":"time","operator":">=","value":"22:00"}},{"id":"logic_and","type":"logicNode","position":{"x":450,"y":200},"data":{"label":"AND","type":"AND"}},{"id":"action_light_on","type":"actionNode","position":{"x":650,"y":120},"data":{"label":"开灯","deviceId":"light_living_001","action":"turn_on","params":{"brightness":100}}},{"id":"action_curtain_close","type":"actionNode","position":{"x":650,"y":250},"data":{"label":"关窗帘","deviceId":"curtain_living_001","action":"close","params":{}}}],"edges":[{"id":"e1","source":"start","target":"logic_and","sourceHandle":"out"},{"id":"e2","source":"cond_presence","target":"logic_and","sourceHandle":"out","targetHandle":"in1"},{"id":"e3","source":"cond_night","target":"logic_and","sourceHandle":"out","targetHandle":"in2"},{"id":"e4","source":"logic_and","target":"action_light_on","sourceHandle":"out"},{"id":"e5","source":"logic_and","target":"action_curtain_close","sourceHandle":"out"}]}',
+'{"conditions":[{"deviceId":"sensor_presence_001","field":"presence","operator":"==","value":true,"label":"有人活动"},{"deviceId":"sensor_temp_001","field":"time","operator":">=","value":"22:00","label":"夜间时段"}],"actions":[{"deviceId":"light_living_001","action":"turn_on","params":{"brightness":100},"label":"开灯"},{"deviceId":"curtain_living_001","action":"close","params":{},"label":"关窗帘"}],"logic":"AND"}',
+'public', 'system', '1.0.0', 1, 65, 1);
+
+-- ============================================================
 -- MQTT 主题约定说明
 -- ============================================================
 --
