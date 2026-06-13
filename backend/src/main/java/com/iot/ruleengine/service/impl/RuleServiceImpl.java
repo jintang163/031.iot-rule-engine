@@ -9,6 +9,7 @@ import com.iot.ruleengine.drools.DroolsRuleEngine;
 import com.iot.ruleengine.drools.RuleParser;
 import com.iot.ruleengine.dto.RuleDTO;
 import com.iot.ruleengine.dto.RuleTestDTO;
+import com.iot.ruleengine.dto.SandboxTestRequest;
 import com.iot.ruleengine.engine.RuleEngine;
 import com.iot.ruleengine.engine.RuleEngine.RuleMatchResult;
 import com.iot.ruleengine.engine.aviator.AviatorRuleEngine;
@@ -272,6 +273,94 @@ public class RuleServiceImpl implements RuleService {
         List<Map<String, Object>> response = new ArrayList<>();
         response.add(executionInfo);
         return response;
+    }
+
+    @Override
+    public Map<String, Object> sandboxTest(SandboxTestRequest request) {
+        DeviceData deviceData = new DeviceData();
+        deviceData.setDeviceId("sandbox_device");
+        deviceData.setAttributes(new HashMap<>());
+
+        if (request.getSensorData() != null) {
+            for (Map.Entry<String, Object> entry : request.getSensorData().entrySet()) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
+                switch (key) {
+                    case "temperature":
+                        if (value instanceof Number) {
+                            deviceData.setTemperature(((Number) value).doubleValue());
+                        }
+                        break;
+                    case "humidity":
+                        if (value instanceof Number) {
+                            deviceData.setHumidity(((Number) value).doubleValue());
+                        }
+                        break;
+                    case "presence":
+                        if (value instanceof Boolean) {
+                            deviceData.setPresence((Boolean) value);
+                        }
+                        break;
+                    case "time":
+                        deviceData.setTime(String.valueOf(value));
+                        break;
+                    default:
+                        deviceData.addAttribute(key, value);
+                        break;
+                }
+            }
+        }
+
+        Long ruleId = request.getRuleId();
+        if (ruleId != null) {
+            Rule rule = ruleRepository.selectById(ruleId);
+            if (rule != null) {
+                ensureRuleContentsParsed(rule);
+                registerRuleToEngine(rule);
+            }
+        }
+
+        List<RuleMatchResult> results = ruleEngine.evaluate(deviceData, true);
+
+        List<Map<String, Object>> conditionEvaluations = new ArrayList<>();
+        List<Map<String, Object>> simulatedActions = new ArrayList<>();
+
+        List<DeviceData.ActionRequest> pendingActions = deviceData.getPendingActions();
+        if (pendingActions != null) {
+            for (DeviceData.ActionRequest action : pendingActions) {
+                Map<String, Object> actionMap = new HashMap<>();
+                actionMap.put("actionType", action.getActionType());
+                actionMap.put("params", action.getParams());
+                actionMap.put("targetDeviceId", action.getTargetDeviceId());
+                actionMap.put("ruleId", action.getRuleId());
+                actionMap.put("ruleName", action.getRuleName());
+                actionMap.put("simulated", true);
+                simulatedActions.add(actionMap);
+            }
+        }
+
+        for (RuleMatchResult matchResult : results) {
+            Map<String, Object> evalMap = new HashMap<>();
+            evalMap.put("ruleId", matchResult.getRuleId());
+            evalMap.put("ruleName", matchResult.getRuleName());
+            evalMap.put("matchedExpression", matchResult.getMatchedExpression());
+            evalMap.put("triggered", true);
+            evalMap.put("triggerTime", matchResult.getTriggerTime() != null
+                    ? matchResult.getTriggerTime().toString() : null);
+            conditionEvaluations.add(evalMap);
+        }
+
+        Map<String, Object> sandboxResult = new HashMap<>();
+        sandboxResult.put("mode", "sandbox");
+        sandboxResult.put("inputData", request.getSensorData());
+        sandboxResult.put("conditionEvaluations", conditionEvaluations);
+        sandboxResult.put("simulatedActions", simulatedActions);
+        sandboxResult.put("matchedRuleCount", results.size());
+        sandboxResult.put("actionCount", simulatedActions.size());
+        sandboxResult.put("summary", results.isEmpty()
+                ? "无规则被触发" : results.size() + " 条规则被触发，" + simulatedActions.size() + " 个动作模拟执行");
+
+        return sandboxResult;
     }
 
     @Override

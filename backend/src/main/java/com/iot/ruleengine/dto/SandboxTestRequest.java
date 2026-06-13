@@ -6,29 +6,14 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Map;
-import java.util.Set;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DebugRequest {
+public class SandboxTestRequest {
 
     private Long ruleId;
-
-    private Set<String> breakpointNodeIds;
-
-    private boolean singleStepMode;
-
-    private String deviceId;
-
-    private Double temperature;
-
-    private Double humidity;
-
-    private String status;
-
-    private Boolean online;
 
     private Map<String, Object> sensorData;
 }

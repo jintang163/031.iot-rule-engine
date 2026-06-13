@@ -53,17 +53,7 @@ public class RuleDebugService {
 
         String sessionId = UUID.randomUUID().toString().replace("-", "");
 
-        DeviceData inputData = DeviceData.builder()
-                .deviceId(request.getDeviceId() != null ? request.getDeviceId() : "debug_device_001")
-                .deviceName("调试设备")
-                .deviceType("sensor_temp")
-                .temperature(request.getTemperature())
-                .humidity(request.getHumidity())
-                .status(request.getStatus())
-                .online(request.getOnline() != null ? request.getOnline() : true)
-                .timestamp(LocalDateTime.now())
-                .attributes(new LinkedHashMap<>())
-                .build();
+        DeviceData inputData = buildInputData(request);
 
         DebugSession session = DebugSession.builder()
                 .sessionId(sessionId)
@@ -90,6 +80,47 @@ public class RuleDebugService {
         sessionThreads.put(sessionId, debugThread);
 
         return buildStatus(session);
+    }
+
+    private DeviceData buildInputData(DebugRequest request) {
+        DeviceData inputData = new DeviceData();
+        inputData.setDeviceId(request.getDeviceId() != null ? request.getDeviceId() : "debug_device_001");
+        inputData.setTemperature(request.getTemperature());
+        inputData.setHumidity(request.getHumidity());
+        inputData.setTime(request.getStatus());
+        inputData.setAttributes(new LinkedHashMap<>());
+
+        if (request.getSensorData() != null) {
+            for (Map.Entry<String, Object> entry : request.getSensorData().entrySet()) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
+                switch (key) {
+                    case "temperature":
+                        if (value instanceof Number) {
+                            inputData.setTemperature(((Number) value).doubleValue());
+                        }
+                        break;
+                    case "humidity":
+                        if (value instanceof Number) {
+                            inputData.setHumidity(((Number) value).doubleValue());
+                        }
+                        break;
+                    case "presence":
+                        if (value instanceof Boolean) {
+                            inputData.setPresence((Boolean) value);
+                        }
+                        break;
+                    case "time":
+                        inputData.setTime(String.valueOf(value));
+                        break;
+                    default:
+                        inputData.addAttribute(key, value);
+                        break;
+                }
+            }
+        }
+
+        return inputData;
     }
 
     private void runDebugSession(String sessionId, DebugSession session, Rule rule) {
@@ -278,7 +309,7 @@ public class RuleDebugService {
                 condition = "动作: " + actionType;
                 result = true;
                 actualValue = actionType + (actionParams != null ? " " + actionParams.toJSONString() : "");
-                message = "执行动作: " + actionType;
+                message = "[沙箱] 模拟执行动作: " + actionType + " (未真实下发指令)";
             }
         }
 

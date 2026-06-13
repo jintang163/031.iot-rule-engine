@@ -183,13 +183,10 @@ public class DebugSession {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         if (currentContext != null) {
             snapshot.put("deviceId", currentContext.getDeviceId());
-            snapshot.put("deviceName", currentContext.getDeviceName());
-            snapshot.put("deviceType", currentContext.getDeviceType());
             snapshot.put("temperature", currentContext.getTemperature());
             snapshot.put("humidity", currentContext.getHumidity());
-            snapshot.put("status", currentContext.getStatus());
-            snapshot.put("online", currentContext.getOnline());
-            snapshot.put("battery", currentContext.getBattery());
+            snapshot.put("presence", currentContext.getPresence());
+            snapshot.put("time", currentContext.getTime());
             if (currentContext.getAttributes() != null) {
                 snapshot.putAll(currentContext.getAttributes());
             }

@@ -10,6 +10,7 @@ import com.iot.ruleengine.dto.Result;
 import com.iot.ruleengine.dto.RuleDTO;
 import com.iot.ruleengine.dto.RuleDetailVO;
 import com.iot.ruleengine.dto.RuleTestDTO;
+import com.iot.ruleengine.dto.SandboxTestRequest;
 import com.iot.ruleengine.engine.RuleEngine;
 import com.iot.ruleengine.entity.Rule;
 import com.iot.ruleengine.repository.RuleRepository;
@@ -98,6 +99,13 @@ public class RuleController {
     @PostMapping("/test")
     public Result<List<Map<String, Object>>> testRule(@Valid @RequestBody RuleTestDTO ruleTestDTO) {
         List<Map<String, Object>> result = ruleService.testRule(ruleTestDTO);
+        return Result.success(result);
+    }
+
+    @PostMapping("/sandbox-test")
+    public Result<Map<String, Object>> sandboxTest(@RequestBody SandboxTestRequest request) {
+        log.info("沙箱测试请求: ruleId={}, sensorData={}", request.getRuleId(), request.getSensorData());
+        Map<String, Object> result = ruleService.sandboxTest(request);
         return Result.success(result);
     }
 
