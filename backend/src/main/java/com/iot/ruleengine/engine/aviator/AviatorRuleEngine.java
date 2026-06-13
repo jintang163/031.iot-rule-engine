@@ -13,9 +13,12 @@ import com.iot.ruleengine.engine.RuleEngine;
 import com.iot.ruleengine.engine.cache.RuleCompilerCache;
 import com.iot.ruleengine.engine.cache.RuleJsonParseCache;
 import com.iot.ruleengine.entity.Rule;
+import com.iot.ruleengine.history.RuleHistoryService;
+import com.iot.ruleengine.history.RuleTriggerHistory;
 import com.iot.ruleengine.mqtt.DeviceCommandService;
 import com.iot.ruleengine.repository.RuleRepository;
 import com.iot.ruleengine.stats.RuleStatsService;
+import com.iot.ruleengine.tenant.TenantContext;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -61,6 +64,9 @@ public class AviatorRuleEngine implements RuleEngine {
 
     @Autowired(required = false)
     private RuleStatsService ruleStatsService;
+
+    @Autowired(required = false)
+    private RuleHistoryService ruleHistoryService;
 
     private Counter rulesRegisteredCounter;
 
@@ -242,6 +248,15 @@ public class AviatorRuleEngine implements RuleEngine {
                                 triggeredActions.size(), actionTypes);
                     } catch (Exception e) {
                         log.warn("记录规则执行统计失败, ruleId={}", ruleId, e);
+                    }
+                }
+
+                if (!dryRun && ruleHistoryService != null && ruleId != null) {
+                    try {
+                        recordHistory(ruleId, ruleName, rule.getRawExpression(),
+                                data, triggeredActions, executionMs);
+                    } catch (Exception e) {
+                        log.warn("记录规则历史轨迹失败, ruleId={}", ruleId, e);
                     }
                 }
 
@@ -498,6 +513,66 @@ public class AviatorRuleEngine implements RuleEngine {
             }
         }
         return 0;
+    }
+
+    private void recordHistory(Long ruleId, String ruleName, String matchedExpression,
+                               DeviceData data, List<DeviceData.ActionRequest> actions,
+                               long executionMs) {
+        if (ruleHistoryService == null) {
+            return;
+        }
+        try {
+            Long tenantId = TenantContext.getTenantId();
+            if (tenantId == null) {
+                tenantId = 1L;
+            }
+
+            Map<String, Object> deviceSnapshot = new HashMap<>();
+            deviceSnapshot.put("deviceId", data.getDeviceId());
+            deviceSnapshot.put("temperature", data.getTemperature());
+            deviceSnapshot.put("humidity", data.getHumidity());
+            deviceSnapshot.put("timestamp", data.getTimestamp());
+            if (data.getAttributes() != null) {
+                deviceSnapshot.put("attributes", new HashMap<>(data.getAttributes()));
+            }
+
+            List<RuleTriggerHistory.ActionHistoryItem> actionItems = new ArrayList<>();
+            if (actions != null) {
+                for (DeviceData.ActionRequest req : actions) {
+                    actionItems.add(RuleTriggerHistory.ActionHistoryItem.builder()
+                            .actionType(req.getActionType())
+                            .targetDeviceId(req.getTargetDeviceId())
+                            .params(req.getParams() != null ? new HashMap<>(req.getParams()) : null)
+                            .success(true)
+                            .resultCode(1)
+                            .build());
+                }
+            }
+
+            java.time.format.DateTimeFormatter dtf =
+                    java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+            String nowStr = LocalDateTime.now().format(dtf);
+
+            RuleTriggerHistory history = RuleTriggerHistory.builder()
+                    .tenantId(tenantId)
+                    .ruleId(ruleId)
+                    .ruleName(ruleName)
+                    .engineType("aviator")
+                    .triggerTime(nowStr)
+                    .deviceId(data.getDeviceId())
+                    .temperature(data.getTemperature())
+                    .humidity(data.getHumidity())
+                    .deviceSnapshot(deviceSnapshot)
+                    .matchedExpression(matchedExpression)
+                    .actions(actionItems)
+                    .executionMs(executionMs)
+                    .createTime(nowStr)
+                    .build();
+
+            ruleHistoryService.recordHistory(history);
+        } catch (Exception e) {
+            log.warn("构建规则历史记录失败, ruleId={}", ruleId, e);
+        }
     }
 
     @Data

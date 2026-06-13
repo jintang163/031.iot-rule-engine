@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Table, Tag, Space, Button, Input, Select, Card, Modal, message, Popconfirm } from 'antd'
-import { SearchOutlined, PlusOutlined, EditOutlined, CopyOutlined, DeleteOutlined, PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons'
+import { SearchOutlined, PlusOutlined, EditOutlined, CopyOutlined, DeleteOutlined, PlayCircleOutlined, PauseCircleOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { getRuleList, deleteRule, enableRule, disableRule, createRule } from '../services/ruleApi'
 import { getStatistics } from '../services/logApi'
 import useAppStore from '../store/useAppStore'
 import { formatDate } from '../utils'
 import RecommendationSection from '../components/recommendation/RecommendationSection'
+import RuleHistoryTimeline from '../components/history/RuleHistoryTimeline'
 
 const { Option } = Select
 
@@ -33,6 +34,8 @@ function RuleList() {
     todayTriggerCount: 0,
     failedActionCount: 0
   })
+  const [timelineVisible, setTimelineVisible] = useState(false)
+  const [timelineRule, setTimelineRule] = useState(null)
 
   const fetchRuleList = async () => {
     setLoading(true)
@@ -158,6 +161,11 @@ function RuleList() {
     }
   }
 
+  const handleViewHistory = (record) => {
+    setTimelineRule(record)
+    setTimelineVisible(true)
+  }
+
   const statCards = [
     { title: '总规则数', value: stats.total, color: '#1890ff' },
     { title: '启用数', value: stats.enabled, color: '#52c41a' },
@@ -221,10 +229,13 @@ function RuleList() {
     {
       title: '操作',
       key: 'action',
-      width: 280,
+      width: 360,
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
+          <Button type="link" size="small" icon={<HistoryOutlined />} onClick={() => handleViewHistory(record)}>
+            轨迹
+          </Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
@@ -320,6 +331,16 @@ function RuleList() {
           scroll={{ x: 1000 }}
         />
       </Card>
+
+      <RuleHistoryTimeline
+        ruleId={timelineRule?.id}
+        ruleName={timelineRule?.name}
+        open={timelineVisible}
+        onClose={() => {
+          setTimelineVisible(false)
+          setTimelineRule(null)
+        }}
+      />
     </div>
   )
 }

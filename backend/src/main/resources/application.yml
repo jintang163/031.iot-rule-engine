@@ -39,6 +39,13 @@ spring:
           max-idle: 8
           min-idle: 0
 
+  elasticsearch:
+    uris: http://localhost:9200
+    username:
+    password:
+    connection-timeout: 5s
+    socket-timeout: 30s
+
   servlet:
     multipart:
       max-file-size: 10MB
@@ -150,6 +157,19 @@ rule:
     enabled: true
     # 是否导出评估延迟直方图（用于Prometheus）
     export-latency-histogram: true
+
+  # -------- 规则历史轨迹配置 --------
+  history:
+    # 是否启用Elasticsearch存储历史轨迹，false=降级仅打印日志
+    enabled: false
+    # Elasticsearch索引名前缀（最终索引会加上tenant_id）
+    index-prefix: rule_trigger_history_
+    # 历史日志保留天数（ES Index Lifecycle）
+    retention-days: 90
+    # 异步写入线程池大小
+    async-threads: 4
+    # 异步写入队列容量
+    async-queue-capacity: 10000
 
 management:
   endpoints:
