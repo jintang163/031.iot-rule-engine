@@ -3,8 +3,13 @@ package com.iot.ruleengine.mqtt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.ruleengine.entity.ActionLog;
 import com.iot.ruleengine.entity.Device;
+import com.iot.ruleengine.history.RuleTriggerHistory;
 import com.iot.ruleengine.repository.ActionLogRepository;
 import com.iot.ruleengine.repository.DeviceRepository;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -43,6 +48,19 @@ public class DeviceCommandService {
         this.objectMapper = objectMapper;
     }
 
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ActionExecutionResult {
+        private String actionType;
+        private String targetDeviceId;
+        private Map<String, Object> params;
+        private boolean success;
+        private String errorMsg;
+        private Integer resultCode;
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void sendCommand(String deviceId, String action, Map<String, Object> params) {
         sendCommand(deviceId, action, params, null, null);
@@ -50,8 +68,20 @@ public class DeviceCommandService {
 
     @Transactional(rollbackFor = Exception.class)
     public void sendCommand(String deviceId, String action, Map<String, Object> params, Long ruleId, String ruleName) {
+        sendCommandWithResult(deviceId, action, params, ruleId, ruleName);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ActionExecutionResult sendCommandWithResult(String deviceId, String action, Map<String, Object> params,
+                                                       Long ruleId, String ruleName) {
         log.info("发送设备控制指令, deviceId: {}, action: {}, params: {}, ruleId: {}, ruleName: {}",
                 deviceId, action, params, ruleId, ruleName);
+
+        Map<String, Object> paramsCopy = params != null ? new HashMap<>(params) : null;
+        ActionExecutionResult.ActionExecutionResultBuilder resultBuilder = ActionExecutionResult.builder()
+                .actionType(action)
+                .targetDeviceId(deviceId)
+                .params(paramsCopy);
 
         boolean isOnline = checkDeviceOnline(deviceId);
         ActionLog actionLog = createActionLog(deviceId, action, params, ruleId, ruleName);
@@ -64,6 +94,7 @@ public class DeviceCommandService {
             actionLog.setExecuteTime(LocalDateTime.now());
             actionLogRepository.insert(actionLog);
 
+            resultBuilder.success(true).resultCode(1);
             log.info("设备控制指令发送成功, deviceId: {}, action: {}, ruleId: {}", deviceId, action, ruleId);
         } catch (Exception e) {
             log.error("设备控制指令发送失败, deviceId: {}, action: {}, ruleId: {}", deviceId, action, ruleId, e);
@@ -72,11 +103,14 @@ public class DeviceCommandService {
             actionLog.setErrorMsg(e.getMessage());
             actionLogRepository.insert(actionLog);
 
+            resultBuilder.success(false).resultCode(0).errorMsg(e.getMessage());
+
             if (!isOnline) {
                 log.warn("设备离线, 指令将进入重试队列, deviceId: {}", deviceId);
             }
-            throw new RuntimeException("设备控制指令发送失败: " + e.getMessage(), e);
         }
+
+        return resultBuilder.build();
     }
 
     @Scheduled(fixedDelay = 60000, initialDelay = 30000)

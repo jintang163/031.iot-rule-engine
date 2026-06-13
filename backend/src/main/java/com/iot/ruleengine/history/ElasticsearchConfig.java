@@ -1,13 +1,11 @@
 package com.iot.ruleengine.history;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 @Configuration
-@EnableConfigurationProperties(RuleHistoryProperties.class)
 @ConditionalOnProperty(name = "rule.history.enabled", havingValue = "true", matchIfMissing = false)
 public class ElasticsearchConfig {
 

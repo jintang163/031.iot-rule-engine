@@ -26,8 +26,8 @@ import {
   CheckCircleOutlined,
   InfoCircleOutlined
 } from '@ant-design/icons'
-import moment from 'moment'
-import { getRuleHistoryList, getRuleHistorySnapshot, isRuleHistoryEnabled } from '../services/ruleHistoryApi'
+import dayjs from 'dayjs'
+import { getRuleHistoryList, getRuleHistorySnapshot, isRuleHistoryEnabled } from '../../services/ruleHistoryApi'
 
 const { RangePicker } = DatePicker
 const { Title, Text, Paragraph } = Typography
@@ -35,7 +35,7 @@ const { Title, Text, Paragraph } = Typography
 function formatTriggerTime(t) {
   if (!t) return '-'
   try {
-    return moment(t.replace('T', ' ')).format('YYYY-MM-DD HH:mm:ss.SSS')
+    return dayjs(t.replace('T', ' ')).format('YYYY-MM-DD HH:mm:ss.SSS')
   } catch (e) {
     return String(t)
   }
@@ -46,7 +46,7 @@ function RuleHistoryTimeline({ ruleId, ruleName, open, onClose }) {
   const [historyEnabled, setHistoryEnabled] = useState(true)
   const [historyList, setHistoryList] = useState([])
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 })
-  const [timeRange, setTimeRange] = useState([moment().subtract(7, 'days'), moment()])
+  const [timeRange, setTimeRange] = useState([dayjs().subtract(7, 'day'), dayjs()])
   const [selectedItem, setSelectedItem] = useState(null)
   const [snapshotDetail, setSnapshotDetail] = useState(null)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
@@ -136,7 +136,7 @@ function RuleHistoryTimeline({ ruleId, ruleName, open, onClose }) {
             </Descriptions.Item>
             <Descriptions.Item label="温度">
               <Tag color={snap.temperature > 30 ? 'red' : 'blue'}>
-                {snap.temperature ?? item.temperature ?? '-'} {'\u00B0'}C
+                {snap.temperature ?? item.temperature ?? '-'} °C
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="湿度">
@@ -305,6 +305,14 @@ function RuleHistoryTimeline({ ruleId, ruleName, open, onClose }) {
     })
   }
 
+  const rangePresets = [
+    { label: '最近1小时', value: [dayjs().subtract(1, 'hour'), dayjs()] },
+    { label: '今日', value: [dayjs().startOf('day'), dayjs()] },
+    { label: '最近7天', value: [dayjs().subtract(7, 'day'), dayjs()] },
+    { label: '最近30天', value: [dayjs().subtract(30, 'day'), dayjs()] },
+    { label: '最近90天', value: [dayjs().subtract(90, 'day'), dayjs()] }
+  ]
+
   return (
     <>
       <Modal
@@ -312,7 +320,7 @@ function RuleHistoryTimeline({ ruleId, ruleName, open, onClose }) {
           <Space>
             <HistoryOutlined style={{ color: '#1890ff' }} />
             <span>规则历史轨迹</span>
-            <Tag color="blue">{ruleName || `规则#${ruleId}`}</Tag>
+            <Tag color="blue">{ruleName || `Rule#${ruleId}`}</Tag>
           </Space>
         }
         open={open}
@@ -342,13 +350,7 @@ function RuleHistoryTimeline({ ruleId, ruleName, open, onClose }) {
                   onChange={handleTimeRangeChange}
                   format="YYYY-MM-DD HH:mm"
                   allowClear
-                  ranges={{
-                    '最近1小时': [moment().subtract(1, 'hours'), moment()],
-                    '今日': [moment().startOf('day'), moment()],
-                    '最近7天': [moment().subtract(7, 'days'), moment()],
-                    '最近30天': [moment().subtract(30, 'days'), moment()],
-                    '最近90天': [moment().subtract(90, 'days'), moment()]
-                  }}
+                  presets={rangePresets}
                 />
               </Space>
             </Col>

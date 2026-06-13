@@ -6,22 +6,31 @@ import com.iot.ruleengine.dto.PageResult;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.query.RangeQueryBuilder;
+import org.elasticsearch.index.reindex.BulkByScrollResponse;
+import org.elasticsearch.index.reindex.DeleteByQueryRequest;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.sort.SortOrder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.lang.Nullable;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -32,24 +41,22 @@ public class RuleHistoryService {
 
     private static final Logger log = LoggerFactory.getLogger(RuleHistoryService.class);
 
+    private static final DateTimeFormatter DTF = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
     private final RuleHistoryProperties properties;
-
-    private final RestHighLevelClient restHighLevelClient;
-
-    private final ThreadPoolTaskExecutor ruleHistoryExecutor;
 
     private final ObjectMapper objectMapper;
 
-    @Autowired
-    public RuleHistoryService(
-            RuleHistoryProperties properties,
-            @Autowired(required = false) RestHighLevelClient restHighLevelClient,
-            @Autowired(required = false) @Qualifier("ruleHistoryExecutor") ThreadPoolTaskExecutor ruleHistoryExecutor,
-            ObjectMapper objectMapper
-    ) {
+    @Nullable
+    @Autowired(required = false)
+    private RestHighLevelClient restHighLevelClient;
+
+    @Nullable
+    @Autowired(required = false)
+    private ThreadPoolTaskExecutor ruleHistoryExecutor;
+
+    public RuleHistoryService(RuleHistoryProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
-        this.restHighLevelClient = restHighLevelClient;
-        this.ruleHistoryExecutor = ruleHistoryExecutor;
         this.objectMapper = objectMapper;
     }
 
@@ -80,7 +87,8 @@ public class RuleHistoryService {
 
                 IndexRequest indexRequest = new IndexRequest(index)
                         .id(docId)
-                        .source(objectMapper.writeValueAsString(history), XContentType.JSON);
+                        .source(objectMapper.writeValueAsString(history), XContentType.JSON)
+                        .setRefreshPolicy(WriteRequest.RefreshPolicy.NONE);
 
                 restHighLevelClient.index(indexRequest, RequestOptions.DEFAULT);
                 log.debug("规则历史记录已写入ES，index={}, docId={}", index, docId);
@@ -100,7 +108,7 @@ public class RuleHistoryService {
 
     private void logHistorySummary(RuleTriggerHistory history) {
         try {
-            log.warn("[规则历史降级模式] ruleId={}, ruleName={}, deviceId={}, triggerTime={}, actions={}",
+            log.info("[规则历史降级模式] ruleId={}, ruleName={}, deviceId={}, triggerTime={}, actions={}",
                     history.getRuleId(),
                     history.getRuleName(),
                     history.getDeviceId(),
@@ -112,6 +120,27 @@ public class RuleHistoryService {
         } catch (Exception e) {
             log.warn("打印规则历史摘要失败", e);
         }
+    }
+
+    private String clampStartTimeToRetentionDays(String startTime) {
+        int retentionDays = properties.getRetentionDays() > 0 ? properties.getRetentionDays() : 90;
+        LocalDateTime earliest = LocalDateTime.now().minusDays(retentionDays);
+        String earliestStr = earliest.format(DTF);
+
+        if (startTime == null || startTime.isEmpty()) {
+            return earliestStr;
+        }
+        try {
+            LocalDateTime start = LocalDateTime.parse(startTime.replace(" ", "T"),
+                    java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            if (start.isBefore(earliest)) {
+                log.debug("请求的起始时间 {} 早于保留天数上限 {}，已自动 clamp", startTime, earliestStr);
+                return earliestStr;
+            }
+        } catch (Exception e) {
+            // parse失败，用兜底
+        }
+        return startTime;
     }
 
     public PageResult<RuleTriggerHistory> searchByRuleId(
@@ -142,9 +171,9 @@ public class RuleHistoryService {
             boolQuery.must(QueryBuilders.termQuery("ruleId", ruleId));
             boolQuery.must(QueryBuilders.termQuery("tenantId", tenantId));
 
-            if (startTime != null && !startTime.isEmpty()) {
-                boolQuery.must(QueryBuilders.rangeQuery("triggerTime").gte(startTime));
-            }
+            String clampedStartTime = clampStartTimeToRetentionDays(startTime);
+            boolQuery.must(QueryBuilders.rangeQuery("triggerTime").gte(clampedStartTime));
+
             if (endTime != null && !endTime.isEmpty()) {
                 boolQuery.must(QueryBuilders.rangeQuery("triggerTime").lte(endTime));
             }
@@ -208,6 +237,9 @@ public class RuleHistoryService {
             BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
             boolQuery.must(QueryBuilders.termQuery("_id", historyId));
             boolQuery.must(QueryBuilders.termQuery("tenantId", tenantId));
+            int retentionDays = properties.getRetentionDays() > 0 ? properties.getRetentionDays() : 90;
+            boolQuery.must(QueryBuilders.rangeQuery("triggerTime")
+                    .gte(LocalDateTime.now().minusDays(retentionDays).format(DTF)));
 
             sourceBuilder.query(boolQuery);
             sourceBuilder.size(1);
@@ -232,6 +264,41 @@ public class RuleHistoryService {
         }
 
         return null;
+    }
+
+    @Scheduled(cron = "0 10 3 * * ?")
+    public void cleanExpiredHistory() {
+        if (!isEnabled()) {
+            return;
+        }
+        int retentionDays = properties.getRetentionDays() > 0 ? properties.getRetentionDays() : 90;
+        String cutoffStr = LocalDateTime.now().minusDays(retentionDays)
+                .atZone(ZoneId.systemDefault()).toInstant().toString();
+
+        log.info("开始清理{}天前的规则历史记录，截止时间={}", retentionDays, cutoffStr);
+
+        try {
+            DeleteByQueryRequest request = new DeleteByQueryRequest(properties.getIndexPrefix() + "*");
+            request.setQuery(QueryBuilders.rangeQuery("triggerTime").lt(cutoffStr));
+            request.setBatchSize(1000);
+            request.setScroll("5m");
+            request.setConflicts("proceed");
+
+            BulkByScrollResponse response = restHighLevelClient.deleteByQuery(request, RequestOptions.DEFAULT);
+            long deleted = response.getDeleted();
+            long failures = response.getBulkFailures().size();
+
+            log.info("规则历史过期清理完成，删除文档数={}, 失败数={}, 耗时={}ms",
+                    deleted, failures, response.getTook().getMillis());
+
+            if (failures > 0) {
+                log.warn("规则历史清理存在{}条失败，详情: {}", failures, response.getBulkFailures());
+            }
+        } catch (IOException e) {
+            log.warn("清理过期规则历史记录失败(IO异常)", e);
+        } catch (Exception e) {
+            log.warn("清理过期规则历史记录失败", e);
+        }
     }
 
     public boolean isEnabled() {

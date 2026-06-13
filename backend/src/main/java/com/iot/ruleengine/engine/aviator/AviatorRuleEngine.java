@@ -223,9 +223,10 @@ public class AviatorRuleEngine implements RuleEngine {
                 }
 
                 List<DeviceData.ActionRequest> triggeredActions = buildActionRequests(rule, data);
+                List<DeviceCommandService.ActionExecutionResult> actionResults = Collections.emptyList();
 
                 if (!dryRun && !triggeredActions.isEmpty()) {
-                    executeActions(triggeredActions, ruleId, ruleName);
+                    actionResults = executeActions(triggeredActions, ruleId, ruleName);
                     actionsTriggeredCounter.increment(triggeredActions.size());
                 }
 
@@ -254,7 +255,7 @@ public class AviatorRuleEngine implements RuleEngine {
                 if (!dryRun && ruleHistoryService != null && ruleId != null) {
                     try {
                         recordHistory(ruleId, ruleName, rule.getRawExpression(),
-                                data, triggeredActions, executionMs);
+                                data, actionResults, executionMs);
                     } catch (Exception e) {
                         log.warn("记录规则历史轨迹失败, ruleId={}", ruleId, e);
                     }
@@ -357,26 +358,49 @@ public class AviatorRuleEngine implements RuleEngine {
         return requests;
     }
 
-    private void executeActions(List<DeviceData.ActionRequest> requests, Long ruleId, String ruleName) {
+    private List<DeviceCommandService.ActionExecutionResult> executeActions(
+            List<DeviceData.ActionRequest> requests, Long ruleId, String ruleName) {
+        List<DeviceCommandService.ActionExecutionResult> results = new ArrayList<>();
         if (deviceCommandService == null) {
             log.warn("DeviceCommandService未初始化，跳过动作执行, ruleId: {}", ruleId);
-            return;
+            for (DeviceData.ActionRequest req : requests) {
+                results.add(DeviceCommandService.ActionExecutionResult.builder()
+                        .actionType(req.getActionType())
+                        .targetDeviceId(req.getTargetDeviceId())
+                        .params(req.getParams() != null ? new HashMap<>(req.getParams()) : null)
+                        .success(false)
+                        .resultCode(0)
+                        .errorMsg("DeviceCommandService未初始化")
+                        .build());
+            }
+            return results;
         }
 
         for (DeviceData.ActionRequest request : requests) {
             try {
-                deviceCommandService.sendCommand(
-                        request.getTargetDeviceId(),
-                        request.getActionType(),
-                        request.getParams(),
-                        ruleId,
-                        ruleName
-                );
+                DeviceCommandService.ActionExecutionResult result =
+                        deviceCommandService.sendCommandWithResult(
+                                request.getTargetDeviceId(),
+                                request.getActionType(),
+                                request.getParams(),
+                                ruleId,
+                                ruleName
+                        );
+                results.add(result);
             } catch (Exception e) {
                 log.error("执行动作失败, ruleId: {}, actionType: {}, deviceId: {}",
                         ruleId, request.getActionType(), request.getTargetDeviceId(), e);
+                results.add(DeviceCommandService.ActionExecutionResult.builder()
+                        .actionType(request.getActionType())
+                        .targetDeviceId(request.getTargetDeviceId())
+                        .params(request.getParams() != null ? new HashMap<>(request.getParams()) : null)
+                        .success(false)
+                        .resultCode(0)
+                        .errorMsg(e.getMessage())
+                        .build());
             }
         }
+        return results;
     }
 
     @Override
@@ -516,7 +540,7 @@ public class AviatorRuleEngine implements RuleEngine {
     }
 
     private void recordHistory(Long ruleId, String ruleName, String matchedExpression,
-                               DeviceData data, List<DeviceData.ActionRequest> actions,
+                               DeviceData data, List<DeviceCommandService.ActionExecutionResult> actionResults,
                                long executionMs) {
         if (ruleHistoryService == null) {
             return;
@@ -537,14 +561,15 @@ public class AviatorRuleEngine implements RuleEngine {
             }
 
             List<RuleTriggerHistory.ActionHistoryItem> actionItems = new ArrayList<>();
-            if (actions != null) {
-                for (DeviceData.ActionRequest req : actions) {
+            if (actionResults != null) {
+                for (DeviceCommandService.ActionExecutionResult r : actionResults) {
                     actionItems.add(RuleTriggerHistory.ActionHistoryItem.builder()
-                            .actionType(req.getActionType())
-                            .targetDeviceId(req.getTargetDeviceId())
-                            .params(req.getParams() != null ? new HashMap<>(req.getParams()) : null)
-                            .success(true)
-                            .resultCode(1)
+                            .actionType(r.getActionType())
+                            .targetDeviceId(r.getTargetDeviceId())
+                            .params(r.getParams() != null ? new HashMap<>(r.getParams()) : null)
+                            .success(r.isSuccess())
+                            .resultCode(r.getResultCode())
+                            .errorMsg(r.getErrorMsg())
                             .build());
                 }
             }

@@ -294,22 +294,35 @@ public class DroolsRuleEngine implements RuleEngine {
 
                 List<DeviceData.ActionRequest> matchedActions = extractActionsByRule(
                         pendingActions, logItem.getRuleId(), logItem.getRuleName());
+                List<DeviceCommandService.ActionExecutionResult> actionResults = new ArrayList<>();
 
                 if (!dryRun && !matchedActions.isEmpty()) {
                     for (DeviceData.ActionRequest actionRequest : matchedActions) {
                         try {
                             String targetDeviceId = actionRequest.getTargetDeviceId() != null
                                     ? actionRequest.getTargetDeviceId() : data.getDeviceId();
-                            deviceCommandService.sendCommand(
-                                    targetDeviceId,
-                                    actionRequest.getActionType(),
-                                    actionRequest.getParams(),
-                                    ruleId,
-                                    actionRequest.getRuleName()
-                            );
+                            DeviceCommandService.ActionExecutionResult execResult =
+                                    deviceCommandService.sendCommandWithResult(
+                                            targetDeviceId,
+                                            actionRequest.getActionType(),
+                                            actionRequest.getParams(),
+                                            ruleId,
+                                            actionRequest.getRuleName()
+                                    );
+                            actionResults.add(execResult);
                         } catch (Exception e) {
                             log.error("动作落地失败: actionType={}, targetDeviceId={}, error={}",
                                     actionRequest.getActionType(), actionRequest.getTargetDeviceId(), e.getMessage(), e);
+                            actionResults.add(DeviceCommandService.ActionExecutionResult.builder()
+                                    .actionType(actionRequest.getActionType())
+                                    .targetDeviceId(actionRequest.getTargetDeviceId() != null
+                                            ? actionRequest.getTargetDeviceId() : data.getDeviceId())
+                                    .params(actionRequest.getParams() != null
+                                            ? new HashMap<>(actionRequest.getParams()) : null)
+                                    .success(false)
+                                    .resultCode(0)
+                                    .errorMsg(e.getMessage())
+                                    .build());
                         }
                     }
                 }
@@ -348,7 +361,7 @@ public class DroolsRuleEngine implements RuleEngine {
                     try {
                         String hRuleName = rule != null ? rule.getName() : logItem.getRuleName();
                         recordHistory(ruleId, hRuleName, logItem.getPackageName(),
-                                data, matchedActions, perRuleMs);
+                                data, actionResults, perRuleMs);
                     } catch (Exception e) {
                         log.warn("记录规则历史轨迹失败(Drools), ruleId={}", ruleId, e);
                     }
@@ -659,7 +672,7 @@ public class DroolsRuleEngine implements RuleEngine {
     }
 
     private void recordHistory(Long ruleId, String ruleName, String matchedExpression,
-                               DeviceData data, List<DeviceData.ActionRequest> actions,
+                               DeviceData data, List<DeviceCommandService.ActionExecutionResult> actionResults,
                                long executionMs) {
         if (ruleHistoryService == null) {
             return;
@@ -680,14 +693,15 @@ public class DroolsRuleEngine implements RuleEngine {
             }
 
             List<RuleTriggerHistory.ActionHistoryItem> actionItems = new ArrayList<>();
-            if (actions != null) {
-                for (DeviceData.ActionRequest req : actions) {
+            if (actionResults != null) {
+                for (DeviceCommandService.ActionExecutionResult r : actionResults) {
                     actionItems.add(RuleTriggerHistory.ActionHistoryItem.builder()
-                            .actionType(req.getActionType())
-                            .targetDeviceId(req.getTargetDeviceId())
-                            .params(req.getParams() != null ? new HashMap<>(req.getParams()) : null)
-                            .success(true)
-                            .resultCode(1)
+                            .actionType(r.getActionType())
+                            .targetDeviceId(r.getTargetDeviceId())
+                            .params(r.getParams() != null ? new HashMap<>(r.getParams()) : null)
+                            .success(r.isSuccess())
+                            .resultCode(r.getResultCode())
+                            .errorMsg(r.getErrorMsg())
                             .build());
                 }
             }
