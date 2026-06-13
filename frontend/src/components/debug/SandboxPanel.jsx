@@ -230,6 +230,12 @@ function SandboxPanel({ ruleId }) {
   const [singleStepMode, setSingleStepMode] = useState(true)
   const pollRef = useRef(null)
 
+  const { nodes, edges } = useRuleStore(state => ({ nodes: state.nodes, edges: state.edges }))
+
+  const getRuleJson = useCallback(() => {
+    return JSON.stringify({ nodes, edges, version: '1.0' })
+  }, [nodes, edges])
+
   const buildSensorMap = useCallback(() => {
     const map = {}
     sensorData.forEach(s => {
@@ -244,7 +250,8 @@ function SandboxPanel({ ruleId }) {
     try {
       const res = await sandboxTest({
         ruleId,
-        sensorData: buildSensorMap()
+        sensorData: buildSensorMap(),
+        ruleJson: getRuleJson()
       })
       setSandboxResult(res)
     } catch (err) {

@@ -158,7 +158,9 @@ public class AviatorRuleEngine implements RuleEngine {
             return results;
         }
 
-        recordDataPointsForTimeWindow(data);
+        if (!dryRun) {
+            recordDataPointsForTimeWindow(data);
+        }
 
         Map<String, Object> envMap = buildEnvMap(data);
 
@@ -198,12 +200,14 @@ public class AviatorRuleEngine implements RuleEngine {
                         return null;
                     }
 
-                    int cooldownSeconds = ruleEntity.getCooldownSeconds() != null ? ruleEntity.getCooldownSeconds() : 0;
-                    if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
-                        long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
-                        log.info("规则处于冷却期，跳过动作执行: ruleId={}, ruleName={}, 剩余{}秒",
-                                ruleId, ruleName, remaining);
-                        return null;
+                    if (!dryRun) {
+                        int cooldownSeconds = ruleEntity.getCooldownSeconds() != null ? ruleEntity.getCooldownSeconds() : 0;
+                        if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
+                            long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
+                            log.info("规则处于冷却期，跳过动作执行: ruleId={}, ruleName={}, 剩余{}秒",
+                                    ruleId, ruleName, remaining);
+                            return null;
+                        }
                     }
                 }
 

@@ -311,33 +311,44 @@ public class RuleServiceImpl implements RuleService {
             }
         }
 
-        Long ruleId = request.getRuleId();
-        if (ruleId != null) {
-            Rule rule = ruleRepository.selectById(ruleId);
-            if (rule != null) {
-                ensureRuleContentsParsed(rule);
-                registerRuleToEngine(rule);
+        Long sandboxTempRuleId = null;
+        boolean registeredViaRuleJson = false;
+
+        if (StringUtils.hasText(request.getRuleJson())) {
+            try {
+                RuleParser.AviatorParseResult parseResult = ruleParser.parseToAviator(
+                        "sandbox_temp",
+                        "未保存规则",
+                        request.getRuleJson()
+                );
+                if (parseResult != null && StringUtils.hasText(parseResult.getExpression())) {
+                    sandboxTempRuleId = System.currentTimeMillis();
+                    Object actionsMeta = parseResult.getActions();
+                    ruleEngine.registerRule(sandboxTempRuleId, "未保存规则", parseResult.getExpression(), actionsMeta);
+                    registeredViaRuleJson = true;
+                }
+            } catch (Exception e) {
+                log.warn("解析画布ruleJson失败，将尝试使用已保存规则: {}", e.getMessage());
+            }
+        } else {
+            Long ruleId = request.getRuleId();
+            if (ruleId != null) {
+                Rule rule = ruleRepository.selectById(ruleId);
+                if (rule != null) {
+                    ensureRuleContentsParsed(rule);
+                    registerRuleToEngine(rule);
+                }
             }
         }
 
         List<RuleMatchResult> results = ruleEngine.evaluate(deviceData, true);
 
+        if (registeredViaRuleJson && sandboxTempRuleId != null) {
+            ruleEngine.unregisterRule(sandboxTempRuleId);
+        }
+
         List<Map<String, Object>> conditionEvaluations = new ArrayList<>();
         List<Map<String, Object>> simulatedActions = new ArrayList<>();
-
-        List<DeviceData.ActionRequest> pendingActions = deviceData.getPendingActions();
-        if (pendingActions != null) {
-            for (DeviceData.ActionRequest action : pendingActions) {
-                Map<String, Object> actionMap = new HashMap<>();
-                actionMap.put("actionType", action.getActionType());
-                actionMap.put("params", action.getParams());
-                actionMap.put("targetDeviceId", action.getTargetDeviceId());
-                actionMap.put("ruleId", action.getRuleId());
-                actionMap.put("ruleName", action.getRuleName());
-                actionMap.put("simulated", true);
-                simulatedActions.add(actionMap);
-            }
-        }
 
         for (RuleMatchResult matchResult : results) {
             Map<String, Object> evalMap = new HashMap<>();
@@ -348,6 +359,19 @@ public class RuleServiceImpl implements RuleService {
             evalMap.put("triggerTime", matchResult.getTriggerTime() != null
                     ? matchResult.getTriggerTime().toString() : null);
             conditionEvaluations.add(evalMap);
+
+            if (matchResult.getTriggeredActions() != null) {
+                for (DeviceData.ActionRequest action : matchResult.getTriggeredActions()) {
+                    Map<String, Object> actionMap = new HashMap<>();
+                    actionMap.put("actionType", action.getActionType());
+                    actionMap.put("params", action.getParams());
+                    actionMap.put("targetDeviceId", action.getTargetDeviceId());
+                    actionMap.put("ruleId", action.getRuleId());
+                    actionMap.put("ruleName", action.getRuleName());
+                    actionMap.put("simulated", true);
+                    simulatedActions.add(actionMap);
+                }
+            }
         }
 
         Map<String, Object> sandboxResult = new HashMap<>();
@@ -357,6 +381,7 @@ public class RuleServiceImpl implements RuleService {
         sandboxResult.put("simulatedActions", simulatedActions);
         sandboxResult.put("matchedRuleCount", results.size());
         sandboxResult.put("actionCount", simulatedActions.size());
+        sandboxResult.put("usedRuleJson", registeredViaRuleJson);
         sandboxResult.put("summary", results.isEmpty()
                 ? "无规则被触发" : results.size() + " 条规则被触发，" + simulatedActions.size() + " 个动作模拟执行");
 

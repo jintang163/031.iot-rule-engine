@@ -16,4 +16,6 @@ public class SandboxTestRequest {
     private Long ruleId;
 
     private Map<String, Object> sensorData;
+
+    private String ruleJson;
 }
