@@ -10,7 +10,8 @@ import {
   Typography,
   Tooltip,
   message,
-  Divider
+  Divider,
+  Tag
 } from 'antd'
 import {
   DashboardOutlined,
@@ -26,8 +27,13 @@ import {
   WifiOutlined,
   BulbOutlined,
   AppstoreOutlined,
-  BarChartOutlined
+  BarChartOutlined,
+  SettingOutlined,
+  TeamOutlined,
+  SafetyOutlined,
+  ApartmentOutlined
 } from '@ant-design/icons'
+import { useAuth } from './contexts/AuthProvider'
 
 const { Header, Sider, Content, Footer } = Layout
 const { Title } = Typography
@@ -35,6 +41,7 @@ const { Title } = Typography
 function App() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { user, logout, hasRole } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
   const [mqttConnected, setMqttConnected] = useState(true)
 
@@ -71,9 +78,41 @@ function App() {
     }
   ]
 
+  if (hasRole(['SUPER_ADMIN', 'TENANT_ADMIN'])) {
+    const systemChildren = []
+    if (hasRole(['TENANT_ADMIN', 'SUPER_ADMIN'])) {
+      systemChildren.push({
+        key: '/system/users',
+        icon: <TeamOutlined />,
+        label: '用户管理'
+      })
+      systemChildren.push({
+        key: '/system/roles',
+        icon: <SafetyOutlined />,
+        label: '角色管理'
+      })
+    }
+    if (hasRole(['SUPER_ADMIN'])) {
+      systemChildren.push({
+        key: '/system/tenants',
+        icon: <ApartmentOutlined />,
+        label: '租户管理'
+      })
+    }
+    if (systemChildren.length > 0) {
+      menuItems.push({
+        key: '/system',
+        icon: <SettingOutlined />,
+        label: '系统管理',
+        children: systemChildren
+      })
+    }
+  }
+
   const getSelectedKey = () => {
     const path = location.pathname
     if (path.startsWith('/rule/')) return '/rule/new'
+    if (path.startsWith('/system/')) return '/system'
     if (path === '/rules') return '/rules'
     if (path === '/templates') return '/templates'
     if (path === '/devices') return '/devices'
@@ -83,6 +122,7 @@ function App() {
   }
 
   const handleMenuClick = ({ key }) => {
+    if (key === '/system') return
     navigate(key)
   }
 
@@ -95,7 +135,30 @@ function App() {
     }, 1500)
   }
 
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login', { replace: true })
+  }
+
   const userMenuItems = [
+    {
+      key: 'info',
+      icon: <UserOutlined />,
+      label: (
+        <Space direction="vertical" size={2} style={{ minWidth: 200 }}>
+          <div style={{ fontWeight: 500 }}>{user?.nickname || user?.username}</div>
+          <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+            @{user?.username}
+          </div>
+          {user?.tenantName && (
+            <Tag color="blue" style={{ margin: 0 }}>
+              {user.tenantName}
+            </Tag>
+          )}
+        </Space>
+      )
+    },
+    { type: 'divider' },
     {
       key: 'mqtt',
       icon: <ReloadOutlined />,
@@ -112,7 +175,7 @@ function App() {
       key: 'logout',
       icon: <LogoutOutlined />,
       label: '退出登录',
-      onClick: () => message.info('退出登录功能')
+      onClick: handleLogout
     }
   ]
 
@@ -135,6 +198,7 @@ function App() {
           theme="dark"
           mode="inline"
           selectedKeys={[getSelectedKey()]}
+          openKeys={getSelectedKey().startsWith('/system') ? ['/system'] : undefined}
           items={menuItems}
           onClick={handleMenuClick}
           className="app-menu"
@@ -154,6 +218,11 @@ function App() {
               <Title level={5} style={{ margin: 0 }}>
                 物联网规则引擎平台
               </Title>
+              {user?.tenantName && (
+                <Tag color="geekblue" style={{ marginLeft: 8 }}>
+                  {user.tenantName}
+                </Tag>
+              )}
               <Tooltip title={mqttConnected ? 'MQTT 已连接' : 'MQTT 连接断开'}>
                 <span
                   className={`mqtt-status ${mqttConnected ? 'connected' : 'disconnected'}`}
@@ -166,8 +235,8 @@ function App() {
           <div className="app-header-right">
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" arrow>
               <Space className="app-user-info">
-                <Avatar size="small" icon={<UserOutlined />} />
-                <span className="app-username">管理员</span>
+                <Avatar size="small" icon={<UserOutlined />} src={user?.avatar} />
+                <span className="app-username">{user?.nickname || user?.username}</span>
               </Space>
             </Dropdown>
           </div>

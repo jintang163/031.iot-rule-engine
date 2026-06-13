@@ -6,11 +6,30 @@ import DeviceManager from '../pages/DeviceManager.jsx'
 import ActionLog from '../pages/ActionLog.jsx'
 import TemplateLibrary from '../pages/TemplateLibrary.jsx'
 import RuleStatsPage from '../pages/RuleStatsPage.jsx'
+import LoginPage from '../pages/LoginPage.jsx'
+import UserManagement from '../pages/UserManagement.jsx'
+import RoleManagement from '../pages/RoleManagement.jsx'
+import TenantManagement from '../pages/TenantManagement.jsx'
+import { RequireAuth, AuthProvider } from '../contexts/AuthProvider.jsx'
 
 const router = createBrowserRouter([
   {
+    path: '/login',
+    element: (
+      <AuthProvider>
+        <LoginPage />
+      </AuthProvider>
+    )
+  },
+  {
     path: '/',
-    element: <App />,
+    element: (
+      <AuthProvider>
+        <RequireAuth>
+          <App />
+        </RequireAuth>
+      </AuthProvider>
+    ),
     children: [
       {
         index: true,
@@ -43,6 +62,18 @@ const router = createBrowserRouter([
       {
         path: 'stats',
         element: <RuleStatsPage />
+      },
+      {
+        path: 'system/users',
+        element: <UserManagement />
+      },
+      {
+        path: 'system/roles',
+        element: <RoleManagement />
+      },
+      {
+        path: 'system/tenants',
+        element: <TenantManagement />
       },
       {
         path: '*',

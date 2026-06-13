@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   ThunderboltOutlined, RocketOutlined, ClockCircleOutlined,
-  DollarOutlined, DownloadOutlined, FileExcelOutlined, FileJsonOutlined,
+  DollarOutlined, DownloadOutlined, FileExcelOutlined, FileTextOutlined,
   DashboardOutlined, BulbOutlined, RiseOutlined, WarningOutlined,
   InfoCircleOutlined, AlertOutlined, CheckCircleOutlined
 } from '@ant-design/icons'
@@ -251,7 +251,7 @@ function RuleStatsPage() {
               menu={{
                 items: [
                   { key: 'csv', icon: <FileExcelOutlined />, label: '导出 CSV', onClick: handleExportCsv },
-                  { key: 'json', icon: <FileJsonOutlined />, label: '导出 JSON', onClick: handleExportJson }
+                  { key: 'json', icon: <FileTextOutlined />, label: '导出 JSON', onClick: handleExportJson }
                 ]
               }}
               placement="bottomRight"

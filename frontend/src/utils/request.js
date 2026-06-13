@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { message } from 'antd'
+import { getToken, removeToken } from '../services/authApi'
 
 const request = axios.create({
   baseURL: '/api',
@@ -9,6 +10,10 @@ const request = axios.create({
 request.interceptors.request.use(
   (config) => {
     config.headers['Content-Type'] = 'application/json'
+    const token = getToken()
+    if (token) {
+      config.headers['Authorization'] = 'Bearer ' + token
+    }
     return config
   },
   (error) => {
@@ -41,9 +46,20 @@ request.interceptors.response.use(
   },
   (error) => {
     if (error.response) {
+      const status = error.response.status
       const res = error.response.data
       const errorMsg = (res && res.msg) || error.message || '网络错误'
-      message.error(errorMsg)
+      if (status === 401) {
+        message.error('登录已过期，请重新登录')
+        removeToken()
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login'
+        }
+      } else if (status === 403) {
+        message.error(errorMsg || '没有操作权限')
+      } else {
+        message.error(errorMsg)
+      }
     } else if (error.request) {
       message.error('服务器无响应，请稍后重试')
     } else {
