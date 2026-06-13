@@ -63,7 +63,9 @@ public class TemplateController {
             @RequestParam(required = false) String scope,
             @RequestParam(required = false) String sourceType,
             @RequestParam(required = false) Integer reviewStatus,
-            @RequestParam(required = false) Integer status) {
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String teamId,
+            @RequestParam(required = false) String authorId) {
         Page<RuleTemplate> page = new Page<>(pageNum, pageSize);
         Map<String, Object> params = new HashMap<>();
         params.put("name", name);
@@ -72,6 +74,8 @@ public class TemplateController {
         params.put("sourceType", sourceType);
         params.put("reviewStatus", reviewStatus);
         params.put("status", status);
+        params.put("teamId", teamId);
+        params.put("authorId", authorId);
         Page<RuleTemplate> result = templateService.listTemplates(page, params);
         return Result.success(PageResult.of(result));
     }
@@ -82,7 +86,10 @@ public class TemplateController {
         Map<String, Object> data = new HashMap<>();
         data.put("ruleId", rule.getId());
         data.put("ruleName", rule.getName());
-        data.put("message", "模板应用成功，规则已创建（默认停用状态）");
+        data.put("status", rule.getStatus());
+        data.put("message", rule.getStatus() != null && rule.getStatus() == 1
+                ? "模板应用成功，规则已创建并自动启用"
+                : "模板应用成功，规则已创建（自动启用失败，请手动启用）");
         return Result.success(data);
     }
 
@@ -119,8 +126,10 @@ public class TemplateController {
             @RequestParam Long ruleId,
             @RequestParam String templateName,
             @RequestParam(required = false) String templateDescription,
-            @RequestParam(required = false) String authorName) {
-        RuleTemplate template = templateService.saveRuleAsTemplate(ruleId, templateName, templateDescription, authorName);
+            @RequestParam(required = false) String authorName,
+            @RequestParam(required = false) String teamId,
+            @RequestParam(required = false) String authorId) {
+        RuleTemplate template = templateService.saveRuleAsTemplate(ruleId, templateName, templateDescription, authorName, teamId, authorId);
         return Result.success(template);
     }
 }

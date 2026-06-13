@@ -209,8 +209,40 @@ const useRuleStore = create((set, get) => ({
     })
   },
 
+  exportRuleConfig: () => {
+    const { nodes } = get()
+    const conditions = []
+    const actions = []
+    let logic = 'AND'
+
+    nodes.forEach(node => {
+      const data = node.data || {}
+      if (node.type === 'conditionNode') {
+        conditions.push({
+          deviceId: data.deviceId,
+          field: data.field,
+          operator: data.operator,
+          value: data.value,
+          label: data.label || `${data.field} ${data.operator} ${data.value}`
+        })
+      } else if (node.type === 'actionNode') {
+        actions.push({
+          deviceId: data.deviceId,
+          action: data.action,
+          params: data.params || {},
+          label: data.label || data.action
+        })
+      } else if (node.type === 'logicNode') {
+        logic = data.type || 'AND'
+      }
+    })
+
+    return { conditions, actions, logic }
+  },
+
   exportRuleData: () => {
     const { ruleInfo, nodes, edges } = get()
+    const ruleConfig = get().exportRuleConfig()
     return {
       id: ruleInfo.id || null,
       name: ruleInfo.name,
@@ -229,6 +261,7 @@ const useRuleStore = create((set, get) => ({
       chainTriggerEnabled: ruleInfo.chainTriggerEnabled,
       chainNextRuleIds: ruleInfo.chainNextRuleIds,
       chainDisableSelf: ruleInfo.chainDisableSelf,
+      ruleConfig: JSON.stringify(ruleConfig),
       ruleJson: JSON.stringify({ nodes, edges, version: '1.0' })
     }
   },

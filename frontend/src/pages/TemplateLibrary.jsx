@@ -46,12 +46,17 @@ function TemplateLibrary() {
         pageSize: pagination.pageSize,
         name: searchName || undefined,
         category: searchCategory || undefined,
-        scope: activeTab === 'all' ? undefined : activeTab,
-        status: 1
+        scope: activeTab === 'all' || activeTab === 'pending' ? undefined : activeTab,
+        status: 1,
+        teamId: 'default'
       }
       if (activeTab === 'pending') {
         params.reviewStatus = 0
         params.status = undefined
+      }
+      if (activeTab === 'private') {
+        params.authorId = 'admin'
+        params.teamId = undefined
       }
       const res = await getTemplateList(params)
       setData(res?.records || [])
@@ -87,11 +92,11 @@ function TemplateLibrary() {
     try {
       setLoading(true)
       const res = await applyTemplate({ templateId: template.id })
-      message.success(`模板「${template.name}」应用成功，已创建规则`)
+      message.success(res?.message || `模板「${template.name}」应用成功`)
       if (res?.ruleId) {
         Modal.confirm({
-          title: '规则已创建',
-          content: `规则「${res.ruleName}」已创建（默认停用），是否前往编辑器查看？`,
+          title: '规则已创建并部署',
+          content: `规则「${res.ruleName}」已${res.status === 1 ? '自动启用并部署成功' : '创建（自动启用失败，请手动启用）'}，是否前往编辑器查看？`,
           okText: '前往编辑',
           cancelText: '留在此页',
           onOk: () => navigate(`/rule/${res.ruleId}`)
@@ -137,7 +142,47 @@ function TemplateLibrary() {
   const handleCreateTemplate = async () => {
     try {
       const values = await createForm.validateFields()
-      await createTemplate(values)
+      const templateData = {
+        ...values,
+        teamId: 'default',
+        authorId: 'admin'
+      }
+      if (templateData.ruleJson && !templateData.ruleConfig) {
+        try {
+          const parsed = typeof templateData.ruleJson === 'string'
+            ? JSON.parse(templateData.ruleJson)
+            : templateData.ruleJson
+          const nodes = parsed.nodes || []
+          const conditions = []
+          const actions = []
+          let logic = 'AND'
+          nodes.forEach(node => {
+            const data = node.data || {}
+            if (node.type === 'conditionNode') {
+              conditions.push({
+                deviceId: data.deviceId,
+                field: data.field,
+                operator: data.operator,
+                value: data.value,
+                label: data.label || `${data.field} ${data.operator} ${data.value}`
+              })
+            } else if (node.type === 'actionNode') {
+              actions.push({
+                deviceId: data.deviceId,
+                action: data.action,
+                params: data.params || {},
+                label: data.label || data.action
+              })
+            } else if (node.type === 'logicNode') {
+              logic = data.type || 'AND'
+            }
+          })
+          templateData.ruleConfig = JSON.stringify({ conditions, actions, logic })
+        } catch (e) {
+          console.warn('自动生成 ruleConfig 失败:', e)
+        }
+      }
+      await createTemplate(templateData)
       message.success('模板创建成功')
       setShowCreateModal(false)
       createForm.resetFields()

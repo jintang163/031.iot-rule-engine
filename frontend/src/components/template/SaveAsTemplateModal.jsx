@@ -33,7 +33,14 @@ function SaveAsTemplateModal({ open, onCancel, onSuccess }) {
     try {
       const values = await form.validateFields()
       setSaving(true)
-      await saveRuleAsTemplate(values.ruleId, values.templateName, values.templateDescription, values.authorName)
+      await saveRuleAsTemplate(
+        values.ruleId,
+        values.templateName,
+        values.templateDescription,
+        values.authorName,
+        'default',
+        'admin'
+      )
       message.success('规则已保存为模板')
       form.resetFields()
       onSuccess?.()

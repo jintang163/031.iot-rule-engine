@@ -37,6 +37,9 @@ public class RuleTemplate {
     @TableField("source_rule_id")
     private Long sourceRuleId;
 
+    @TableField("team_id")
+    private String teamId;
+
     @TableField("author_id")
     private String authorId;
 

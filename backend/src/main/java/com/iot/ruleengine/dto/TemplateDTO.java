@@ -29,6 +29,8 @@ public class TemplateDTO {
 
     private Long sourceRuleId;
 
+    private String teamId;
+
     private String authorId;
 
     private String authorName;

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Layout, Typography, Button, Space, Breadcrumb, message, Modal, Form, Input } from 'antd'
+import { Layout, Typography, Button, Space, Breadcrumb, message, Modal, Form, Input, Tag } from 'antd'
 import { useParams, useNavigate } from 'react-router-dom'
-import { SaveOutlined, PlayCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons'
+import { SaveOutlined, PlayCircleOutlined, ArrowLeftOutlined, AppstoreOutlined } from '@ant-design/icons'
 import Canvas from '../components/canvas/Canvas.jsx'
 import Sidebar from '../components/sidebar/Sidebar.jsx'
 import ConfigPanel from '../components/config/ConfigPanel.jsx'
 import { getRuleById, createRule, updateRule, testRule } from '../services/ruleApi'
+import { saveRuleAsTemplate } from '../services/templateApi'
 import useRuleStore from '../store/useRuleStore.js'
 import useAppStore from '../store/useAppStore.js'
 
@@ -24,6 +25,8 @@ function RuleEditor() {
   const [resultModalOpen, setResultModalOpen] = useState(false)
   const [testResult, setTestResult] = useState(null)
   const [testForm] = Form.useForm()
+  const [saveAsTemplateModal, setSaveAsTemplateModal] = useState(false)
+  const [templateForm] = Form.useForm()
 
   useEffect(() => {
     if (isEditMode) {
@@ -60,15 +63,66 @@ function RuleEditor() {
     }
     try {
       setLoading(true)
+      let res
       if (isEditMode) {
-        await updateRule(ruleData)
+        res = await updateRule(ruleData)
       } else {
-        await createRule(ruleData)
+        res = await createRule(ruleData)
       }
       message.success('规则保存成功')
-      navigate('/rules')
+      if (res?.id) {
+        useRuleStore.getState().setRuleInfo({ id: res.id })
+        navigate('/rules')
+      }
     } catch (error) {
       console.error('保存规则失败:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSaveAsTemplate = () => {
+    const ruleData = useRuleStore.getState().exportRuleData()
+    if (!ruleData.name || !ruleData.name.trim()) {
+      message.warning('请先填写规则名称再保存为模板')
+      return
+    }
+    templateForm.setFieldsValue({
+      templateName: ruleData.name,
+      templateDescription: ruleData.description,
+      authorName: '管理员'
+    })
+    setSaveAsTemplateModal(true)
+  }
+
+  const handleSaveAsTemplateConfirm = async () => {
+    try {
+      const values = await templateForm.validateFields()
+      setLoading(true)
+      const ruleData = useRuleStore.getState().exportRuleData()
+      let ruleId = id && id !== 'new' ? id : null
+      if (!ruleId && ruleData.id) {
+        ruleId = ruleData.id
+      }
+      if (!ruleId) {
+        const res = await createRule(ruleData)
+        ruleId = res?.id
+        useRuleStore.getState().setRuleInfo({ id: ruleId })
+      }
+      await saveRuleAsTemplate(
+        ruleId,
+        values.templateName,
+        values.templateDescription,
+        values.authorName,
+        'default',
+        'admin'
+      )
+      message.success('规则已保存为模板')
+      setSaveAsTemplateModal(false)
+      templateForm.resetFields()
+    } catch (error) {
+      if (error?.errorFields) return
+      console.error('保存为模板失败:', error)
     } finally {
       setLoading(false)
     }
@@ -158,6 +212,12 @@ function RuleEditor() {
         <Space>
           <Button icon={<PlayCircleOutlined />} onClick={handleRun}>
             运行测试
+          </Button>
+          <Button
+            icon={<AppstoreOutlined />}
+            onClick={handleSaveAsTemplate}
+          >
+            存为模板
           </Button>
           <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>
             保存规则
@@ -294,6 +354,41 @@ function RuleEditor() {
             <div style={{ color: '#8c8c8c', padding: '8px 0' }}>无动作执行</div>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        title="保存为模板"
+        open={saveAsTemplateModal}
+        onOk={handleSaveAsTemplateConfirm}
+        onCancel={() => {
+          setSaveAsTemplateModal(false)
+          templateForm.resetFields()
+        }}
+        okText="保存为模板"
+        cancelText="取消"
+        width={520}
+      >
+        <Form form={templateForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="templateName"
+            label="模板名称"
+            rules={[{ required: true, message: '请输入模板名称' }]}
+          >
+            <Input placeholder="为模板起一个名称" maxLength={200} />
+          </Form.Item>
+          <Form.Item name="templateDescription" label="模板描述">
+            <Input.TextArea placeholder="描述模板的用途和适用场景" maxLength={500} rows={3} />
+          </Form.Item>
+          <Form.Item name="authorName" label="创建者" initialValue="管理员">
+            <Input placeholder="创建者名称" maxLength={100} />
+          </Form.Item>
+          {!isEditMode && (
+            <div style={{ padding: '8px 12px', background: '#fff7e6', borderRadius: 6, fontSize: 12, color: '#d46b08' }}>
+              <Tag color="orange" style={{ marginRight: 8 }}>提示</Tag>
+              当前规则尚未保存，保存为模板时将自动保存规则
+            </div>
+          )}
+        </Form>
       </Modal>
     </div>
   )

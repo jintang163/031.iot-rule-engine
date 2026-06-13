@@ -54,6 +54,18 @@ public class TemplateServiceImpl implements TemplateService {
         if (!StringUtils.hasText(template.getVersion())) {
             template.setVersion("1.0.0");
         }
+        if (!StringUtils.hasText(template.getAuthorId())) {
+            template.setAuthorId("admin");
+        }
+        if (!StringUtils.hasText(template.getAuthorName())) {
+            template.setAuthorName("管理员");
+        }
+        if (!StringUtils.hasText(template.getTeamId())) {
+            template.setTeamId("default");
+        }
+        if (template.getRuleConfig() == null && StringUtils.hasText(template.getRuleJson())) {
+            template.setRuleConfig(generateRuleConfig(template.getRuleJson()));
+        }
         template.setReviewStatus("public".equals(template.getScope()) ? 0 : 1);
         template.setApplyCount(0);
         template.setStatus(1);
@@ -123,6 +135,12 @@ public class TemplateServiceImpl implements TemplateService {
             if (params.containsKey("status") && params.get("status") != null) {
                 queryWrapper.eq("status", params.get("status"));
             }
+            if (params.containsKey("teamId") && StringUtils.hasText((String) params.get("teamId"))) {
+                queryWrapper.and(w -> w.eq("scope", "public").or().eq("team_id", params.get("teamId")));
+            }
+            if (params.containsKey("authorId") && StringUtils.hasText((String) params.get("authorId"))) {
+                queryWrapper.eq("author_id", params.get("authorId"));
+            }
         }
         queryWrapper.orderByDesc("apply_count");
         queryWrapper.orderByDesc("create_time");
@@ -151,6 +169,13 @@ public class TemplateServiceImpl implements TemplateService {
         ruleDTO.setPriority(5);
 
         Rule rule = ruleService.saveRule(ruleDTO);
+
+        try {
+            ruleService.enableRule(rule.getId());
+            log.info("模板[{}]应用规则[{}]已自动启用", template.getName(), rule.getId());
+        } catch (Exception e) {
+            log.warn("模板[{}]应用规则[{}]自动启用失败: {}", template.getName(), rule.getId(), e.getMessage());
+        }
 
         template.setApplyCount(template.getApplyCount() != null ? template.getApplyCount() + 1 : 1);
         templateRepository.updateById(template);
@@ -211,7 +236,7 @@ public class TemplateServiceImpl implements TemplateService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public RuleTemplate saveRuleAsTemplate(Long ruleId, String templateName, String templateDescription, String authorName) {
+    public RuleTemplate saveRuleAsTemplate(Long ruleId, String templateName, String templateDescription, String authorName, String teamId, String authorId) {
         Rule rule = ruleRepository.selectById(ruleId);
         if (rule == null) {
             throw new BusinessException("规则不存在");
@@ -222,10 +247,13 @@ public class TemplateServiceImpl implements TemplateService {
         template.setDescription(templateDescription);
         template.setCategory("custom");
         template.setRuleJson(rule.getRuleJson());
+        template.setRuleConfig(generateRuleConfig(rule.getRuleJson()));
         template.setScope("team");
         template.setSourceType("user");
         template.setSourceRuleId(ruleId);
-        template.setAuthorName(authorName);
+        template.setTeamId(StringUtils.hasText(teamId) ? teamId : "default");
+        template.setAuthorId(StringUtils.hasText(authorId) ? authorId : "admin");
+        template.setAuthorName(StringUtils.hasText(authorName) ? authorName : "管理员");
         template.setVersion("1.0.0");
         template.setReviewStatus(1);
         template.setApplyCount(0);
@@ -234,5 +262,57 @@ public class TemplateServiceImpl implements TemplateService {
 
         log.info("规则[{}]已保存为模板[{}]", ruleId, template.getId());
         return template;
+    }
+
+    private String generateRuleConfig(String ruleJson) {
+        if (!StringUtils.hasText(ruleJson)) {
+            return null;
+        }
+        try {
+            com.alibaba.fastjson.JSONObject jsonObj = com.alibaba.fastjson.JSON.parseObject(ruleJson);
+            com.alibaba.fastjson.JSONArray nodes = jsonObj.getJSONArray("nodes");
+            if (nodes == null || nodes.isEmpty()) {
+                return null;
+            }
+
+            List<Map<String, Object>> conditions = new ArrayList<>();
+            List<Map<String, Object>> actions = new ArrayList<>();
+            String logic = "AND";
+
+            for (int i = 0; i < nodes.size(); i++) {
+                com.alibaba.fastjson.JSONObject node = nodes.getJSONObject(i);
+                String type = node.getString("type");
+                com.alibaba.fastjson.JSONObject data = node.getJSONObject("data");
+                if (data == null) continue;
+
+                if ("conditionNode".equals(type)) {
+                    Map<String, Object> cond = new HashMap<>();
+                    cond.put("deviceId", data.getString("deviceId"));
+                    cond.put("field", data.getString("field"));
+                    cond.put("operator", data.getString("operator"));
+                    cond.put("value", data.get("value"));
+                    cond.put("label", data.getString("label"));
+                    conditions.add(cond);
+                } else if ("actionNode".equals(type)) {
+                    Map<String, Object> action = new HashMap<>();
+                    action.put("deviceId", data.getString("deviceId"));
+                    action.put("action", data.getString("action"));
+                    action.put("params", data.get("params"));
+                    action.put("label", data.getString("label"));
+                    actions.add(action);
+                } else if ("logicNode".equals(type)) {
+                    logic = data.getString("type");
+                }
+            }
+
+            Map<String, Object> config = new HashMap<>();
+            config.put("conditions", conditions);
+            config.put("actions", actions);
+            config.put("logic", logic);
+            return com.alibaba.fastjson.JSON.toJSONString(config);
+        } catch (Exception e) {
+            log.warn("生成 ruleConfig 失败: {}", e.getMessage());
+            return null;
+        }
     }
 }

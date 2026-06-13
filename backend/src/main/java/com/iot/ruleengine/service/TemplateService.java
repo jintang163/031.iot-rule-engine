@@ -31,5 +31,5 @@ public interface TemplateService {
 
     List<RuleTemplate> getTemplatesByCategory(String category);
 
-    RuleTemplate saveRuleAsTemplate(Long ruleId, String templateName, String templateDescription, String authorName);
+    RuleTemplate saveRuleAsTemplate(Long ruleId, String templateName, String templateDescription, String authorName, String teamId, String authorId);
 }

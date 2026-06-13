@@ -51,9 +51,9 @@ export const getTemplatesByCategory = (category) => {
   return request.get(`/template/category/${category}`)
 }
 
-export const saveRuleAsTemplate = (ruleId, templateName, templateDescription, authorName) => {
+export const saveRuleAsTemplate = (ruleId, templateName, templateDescription, authorName, teamId, authorId) => {
   return request.post('/template/save-from-rule', null, {
-    params: { ruleId, templateName, templateDescription, authorName }
+    params: { ruleId, templateName, templateDescription, authorName, teamId, authorId }
   })
 }
 

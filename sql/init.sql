@@ -290,6 +290,7 @@ CREATE TABLE `rule_template` (
   `scope` VARCHAR(20) DEFAULT 'public' COMMENT '可见范围: public/team/private',
   `source_type` VARCHAR(20) DEFAULT 'system' COMMENT '来源类型: system(系统内置)/user(用户自建)',
   `source_rule_id` BIGINT COMMENT '来源规则ID（用户从已有规则保存为模板时记录）',
+  `team_id` VARCHAR(100) COMMENT '团队ID',
   `author_id` VARCHAR(100) COMMENT '创建者ID',
   `author_name` VARCHAR(100) COMMENT '创建者名称',
   `version` VARCHAR(30) DEFAULT '1.0.0' COMMENT '版本标记',
@@ -305,7 +306,9 @@ CREATE TABLE `rule_template` (
   INDEX `idx_scope` (`scope`),
   INDEX `idx_source_type` (`source_type`),
   INDEX `idx_review_status` (`review_status`),
-  INDEX `idx_status` (`status`)
+  INDEX `idx_status` (`status`),
+  INDEX `idx_team_id` (`team_id`),
+  INDEX `idx_author_id` (`author_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='场景模板表';
 
 -- 预置场景模板数据
