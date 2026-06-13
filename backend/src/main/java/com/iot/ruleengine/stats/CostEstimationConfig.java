@@ -31,7 +31,23 @@ public class CostEstimationConfig {
         put("default", new BigDecimal("0.1"));
     }};
 
-    private BigDecimal avgRuntimeMinutesPerTrigger = new BigDecimal("30");
+    private Map<String, BigDecimal> runtimeMinutesByAction = new HashMap<String, BigDecimal>() {{
+        put("aircon", new BigDecimal("60"));
+        put("air_conditioner", new BigDecimal("60"));
+        put("turn_on_aircon", new BigDecimal("60"));
+        put("ac", new BigDecimal("60"));
+        put("heater", new BigDecimal("45"));
+        put("turn_on_heater", new BigDecimal("45"));
+        put("light", new BigDecimal("120"));
+        put("turn_on_light", new BigDecimal("120"));
+        put("fan", new BigDecimal("60"));
+        put("turn_on_fan", new BigDecimal("60"));
+        put("humidifier", new BigDecimal("30"));
+        put("dehumidifier", new BigDecimal("30"));
+        put("default", new BigDecimal("30"));
+    }};
+
+    private BigDecimal defaultRuntimeMinutes = new BigDecimal("30");
 
     public BigDecimal getPowerKw(String actionType) {
         if (actionType == null) {
@@ -47,6 +63,22 @@ public class CostEstimationConfig {
             }
         }
         return devicePowerKw.getOrDefault("default", new BigDecimal("0.1"));
+    }
+
+    public BigDecimal getRuntimeMinutes(String actionType) {
+        if (actionType == null) {
+            return runtimeMinutesByAction.getOrDefault("default", defaultRuntimeMinutes);
+        }
+        String key = actionType.toLowerCase();
+        if (runtimeMinutesByAction.containsKey(key)) {
+            return runtimeMinutesByAction.get(key);
+        }
+        for (Map.Entry<String, BigDecimal> entry : runtimeMinutesByAction.entrySet()) {
+            if (key.contains(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return runtimeMinutesByAction.getOrDefault("default", defaultRuntimeMinutes);
     }
 
     public boolean isEnergyConsumingAction(String actionType) {

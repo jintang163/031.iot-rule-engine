@@ -8,6 +8,7 @@ import com.iot.ruleengine.engine.RuleEngine;
 import com.iot.ruleengine.entity.Rule;
 import com.iot.ruleengine.mqtt.DeviceCommandService;
 import com.iot.ruleengine.repository.RuleRepository;
+import com.iot.ruleengine.stats.RuleStatsService;
 import lombok.extern.slf4j.Slf4j;
 import org.kie.api.KieServices;
 import org.kie.api.builder.Message;
@@ -52,6 +53,9 @@ public class DroolsRuleEngine implements RuleEngine {
 
     @Lazy
     private DeviceCommandService deviceCommandService;
+
+    @Autowired(required = false)
+    private RuleStatsService ruleStatsService;
 
     private volatile KieSession kieSession;
 
@@ -238,9 +242,13 @@ public class DroolsRuleEngine implements RuleEngine {
 
         List<RuleExecutionResult> results = new ArrayList<>();
 
-        recordDataPointsForTimeWindow(data);
+        if (!dryRun) {
+            recordDataPointsForTimeWindow(data);
+        }
 
         try {
+            long droolsEvalStartNanos = System.nanoTime();
+
             int factCount = kieSession.insert(data);
             log.debug("插入Fact数量: {}", factCount);
 
@@ -249,6 +257,9 @@ public class DroolsRuleEngine implements RuleEngine {
 
             List<DeviceData.ActionRequest> pendingActions = data.getPendingActions();
             List<RuleExecutionListener.ExecutionLog> logs = ruleExecutionListener.getExecutionLogs();
+
+            long droolsTotalMs = (System.nanoTime() - droolsEvalStartNanos) / 1_000_000L;
+            long perRuleMs = logs.size() > 0 ? droolsTotalMs / logs.size() : 1L;
 
             for (RuleExecutionListener.ExecutionLog logItem : logs) {
                 Long ruleId = parseRuleId(logItem.getRuleId());
@@ -263,13 +274,15 @@ public class DroolsRuleEngine implements RuleEngine {
                         continue;
                     }
 
-                    int cooldownSeconds = rule.getCooldownSeconds() != null ? rule.getCooldownSeconds() : 0;
-                    if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
-                        long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
-                        log.info("规则处于冷却期，跳过: ruleId={}, ruleName={}, 剩余{}秒",
-                                ruleId, rule.getName(), remaining);
-                        removeActionsByRule(pendingActions, logItem.getRuleId(), logItem.getRuleName());
-                        continue;
+                    if (!dryRun) {
+                        int cooldownSeconds = rule.getCooldownSeconds() != null ? rule.getCooldownSeconds() : 0;
+                        if (!cooldownService.canTrigger(ruleId, cooldownSeconds)) {
+                            long remaining = cooldownService.getRemainingCooldown(ruleId, cooldownSeconds);
+                            log.info("规则处于冷却期，跳过: ruleId={}, ruleName={}, 剩余{}秒",
+                                    ruleId, rule.getName(), remaining);
+                            removeActionsByRule(pendingActions, logItem.getRuleId(), logItem.getRuleName());
+                            continue;
+                        }
                     }
                 }
 
@@ -310,6 +323,20 @@ public class DroolsRuleEngine implements RuleEngine {
                 result.setDeviceId(data.getDeviceId());
                 result.setTriggeredActions(matchedActions);
                 results.add(result);
+
+                if (!dryRun && ruleStatsService != null && ruleId != null) {
+                    try {
+                        List<String> actionTypes = new ArrayList<>();
+                        for (DeviceData.ActionRequest req : matchedActions) {
+                            actionTypes.add(req.getActionType());
+                        }
+                        String statsRuleName = rule != null ? rule.getName() : logItem.getRuleName();
+                        ruleStatsService.recordExecution(ruleId, statsRuleName, perRuleMs,
+                                matchedActions.size(), actionTypes);
+                    } catch (Exception e) {
+                        log.warn("记录规则执行统计失败(Drools), ruleId={}", ruleId, e);
+                    }
+                }
             }
 
             log.info("规则执行完成: deviceId={}, 触发规则数={}, 动作数={}",

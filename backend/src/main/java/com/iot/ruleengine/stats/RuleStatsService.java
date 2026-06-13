@@ -70,8 +70,8 @@ public class RuleStatsService {
             return BigDecimal.ZERO;
         }
         BigDecimal powerKw = costConfig.getPowerKw(actionType);
-        BigDecimal runtimeHours = costConfig.getAvgRuntimeMinutesPerTrigger()
-                .divide(new BigDecimal("60"), 6, RoundingMode.HALF_UP);
+        BigDecimal runtimeMinutes = costConfig.getRuntimeMinutes(actionType);
+        BigDecimal runtimeHours = runtimeMinutes.divide(new BigDecimal("60"), 6, RoundingMode.HALF_UP);
         BigDecimal kwh = powerKw.multiply(runtimeHours);
         return kwh.multiply(costConfig.getElectricityPricePerKwh())
                 .setScale(4, RoundingMode.HALF_UP);
@@ -173,8 +173,17 @@ public class RuleStatsService {
                     .filter(l -> l.getRuleId() != null)
                     .collect(Collectors.groupingBy(ActionLog::getRuleId));
 
+            int backfilledCount = 0;
             for (Map.Entry<Long, List<ActionLog>> entry : grouped.entrySet()) {
                 Long ruleId = entry.getKey();
+
+                QueryWrapper<RuleExecutionStats> existCheck = new QueryWrapper<>();
+                existCheck.eq("rule_id", ruleId).eq("stat_date", yesterday);
+                if (statsRepository.selectCount(existCheck) > 0) {
+                    log.debug("规则{}的昨日统计已存在(实时写入或已回填)，跳过回填", ruleId);
+                    continue;
+                }
+
                 List<ActionLog> ruleLogs = entry.getValue();
                 Rule rule = ruleRepository.selectById(ruleId);
                 String ruleName = rule != null ? rule.getName() : ("Rule_" + ruleId);
@@ -187,11 +196,12 @@ public class RuleStatsService {
                 }
                 try {
                     upsertStats(acc);
+                    backfilledCount++;
                 } catch (Exception e) {
                     log.error("回填ActionLog统计失败, ruleId={}", ruleId, e);
                 }
             }
-            log.info("回填昨日规则统计完成, 覆盖{}条规则", grouped.size());
+            log.info("回填昨日规则统计完成, 回填{}条规则(跳过已有{}条)", backfilledCount, grouped.size() - backfilledCount);
         } catch (Exception e) {
             log.error("回填ActionLog统计异常", e);
         }
@@ -220,8 +230,8 @@ public class RuleStatsService {
             count++;
         }
 
-        BigDecimal avgExecutionMs = count > 0
-                ? BigDecimal.valueOf(totalExecutionMs).divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP)
+        BigDecimal avgExecutionMs = totalTriggers > 0
+                ? BigDecimal.valueOf(totalExecutionMs).divide(BigDecimal.valueOf(totalTriggers), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
         List<Map<String, Object>> ruleRankings = new ArrayList<>();
@@ -370,8 +380,9 @@ public class RuleStatsService {
     private Map<String, Object> buildCostConfigInfo() {
         Map<String, Object> info = new LinkedHashMap<>();
         info.put("electricityPricePerKwh", costConfig.getElectricityPricePerKwh());
-        info.put("avgRuntimeMinutesPerTrigger", costConfig.getAvgRuntimeMinutesPerTrigger());
+        info.put("defaultRuntimeMinutesPerTrigger", costConfig.getDefaultRuntimeMinutes());
         info.put("devicePowerKw", costConfig.getDevicePowerKw());
+        info.put("runtimeMinutesByAction", costConfig.getRuntimeMinutesByAction());
         return info;
     }
 
