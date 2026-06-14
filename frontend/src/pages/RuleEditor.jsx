@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Layout, Typography, Button, Space, Breadcrumb, message, Modal, Form, Input, Tag } from 'antd'
+import { Layout, Typography, Button, Space, Breadcrumb, message, Modal, Form, Input, Tag, Drawer } from 'antd'
 import { useParams, useNavigate } from 'react-router-dom'
-import { SaveOutlined, ExperimentOutlined, ArrowLeftOutlined, AppstoreOutlined } from '@ant-design/icons'
+import { SaveOutlined, ExperimentOutlined, ArrowLeftOutlined, AppstoreOutlined, HistoryOutlined } from '@ant-design/icons'
 import Canvas from '../components/canvas/Canvas.jsx'
 import Sidebar from '../components/sidebar/Sidebar.jsx'
 import ConfigPanel from '../components/config/ConfigPanel.jsx'
 import SandboxPanel from '../components/debug/SandboxPanel.jsx'
+import VersionHistoryPanel from '../components/version/VersionHistoryPanel.jsx'
 import { getRuleById, createRule, updateRule } from '../services/ruleApi'
 import { saveRuleAsTemplate } from '../services/templateApi'
 import useRuleStore from '../store/useRuleStore.js'
@@ -24,6 +25,10 @@ function RuleEditor() {
   const [sandboxVisible, setSandboxVisible] = useState(false)
   const [saveAsTemplateModal, setSaveAsTemplateModal] = useState(false)
   const [templateForm] = Form.useForm()
+  const [versionPanelVisible, setVersionPanelVisible] = useState(false)
+  const [saveWithCommentModal, setSaveWithCommentModal] = useState(false)
+  const [saveForm] = Form.useForm()
+  const [versionKey, setVersionKey] = useState(0)
 
   const ruleId = isEditMode ? Number(id) : null
 
@@ -54,13 +59,26 @@ function RuleEditor() {
     }
   }
 
-  const handleSave = async () => {
+  const handleSave = () => {
     const ruleData = useRuleStore.getState().exportRuleData()
     if (!ruleData.name || !ruleData.name.trim()) {
       message.warning('请先填写规则名称')
       return
     }
+    saveForm.setFieldsValue({
+      versionComment: '',
+      changeSummary: ''
+    })
+    setSaveWithCommentModal(true)
+  }
+
+  const handleSaveConfirm = async () => {
     try {
+      const values = await saveForm.validateFields()
+      const ruleData = useRuleStore.getState().exportRuleData()
+      ruleData.versionComment = values.versionComment
+      ruleData.changeSummary = values.changeSummary
+
       setLoading(true)
       let res
       if (isEditMode) {
@@ -69,15 +87,28 @@ function RuleEditor() {
         res = await createRule(ruleData)
       }
       message.success('规则保存成功')
+      setSaveWithCommentModal(false)
+      saveForm.resetFields()
+      setVersionKey((prev) => prev + 1)
       if (res?.id) {
         useRuleStore.getState().setRuleInfo({ id: res.id })
-        navigate('/rules')
+        if (!isEditMode) {
+          navigate(`/rule/${res.id}`)
+        }
       }
     } catch (error) {
+      if (error?.errorFields) return
       console.error('保存规则失败:', error)
+      message.error('保存失败: ' + (error?.message || '未知错误'))
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleRollback = () => {
+    message.info('已回滚，正在重新加载规则...')
+    setVersionKey((prev) => prev + 1)
+    fetchRuleDetail()
   }
 
   const handleSaveAsTemplate = () => {
@@ -188,6 +219,14 @@ function RuleEditor() {
           >
             存为模板
           </Button>
+          {isEditMode && (
+            <Button
+              icon={<HistoryOutlined />}
+              onClick={() => setVersionPanelVisible(true)}
+            >
+              版本历史
+            </Button>
+          )}
           <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>
             保存规则
           </Button>
@@ -269,6 +308,59 @@ function RuleEditor() {
           )}
         </Form>
       </Modal>
+
+      <Modal
+        title="保存规则"
+        open={saveWithCommentModal}
+        onOk={handleSaveConfirm}
+        onCancel={() => {
+          setSaveWithCommentModal(false)
+          saveForm.resetFields()
+        }}
+        okText="确认保存"
+        cancelText="取消"
+        width={520}
+      >
+        <Form form={saveForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="changeSummary"
+            label="变更摘要"
+            extra="简要描述本次修改的内容"
+          >
+            <Input placeholder="如：调整温度阈值、新增告警动作等" maxLength={200} />
+          </Form.Item>
+          <Form.Item name="versionComment" label="版本注释">
+            <Input.TextArea
+              placeholder="详细描述本次修改的原因和内容（可选）"
+              maxLength={1000}
+              rows={4}
+            />
+          </Form.Item>
+          <div style={{ padding: '8px 12px', background: '#e6f7ff', borderRadius: 6, fontSize: 12, color: '#1890ff' }}>
+            <Tag color="blue" style={{ marginRight: 8 }}>提示</Tag>
+            保存后将自动创建一个新版本快照，您可以在版本历史中查看和回滚
+          </div>
+        </Form>
+      </Modal>
+
+      <Drawer
+        title="版本历史"
+        placement="right"
+        width={420}
+        open={versionPanelVisible}
+        onClose={() => setVersionPanelVisible(false)}
+        destroyOnClose
+        bodyStyle={{ padding: 0 }}
+      >
+        {ruleId && (
+          <VersionHistoryPanel
+            key={versionKey}
+            ruleId={ruleId}
+            onRollback={handleRollback}
+            onClose={() => setVersionPanelVisible(false)}
+          />
+        )}
+      </Drawer>
     </div>
   )
 }

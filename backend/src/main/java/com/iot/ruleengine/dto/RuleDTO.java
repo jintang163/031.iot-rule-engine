@@ -40,4 +40,8 @@ public class RuleDTO {
     private String chainNextRuleIds;
 
     private Integer chainDisableSelf;
+
+    private String versionComment;
+
+    private String changeSummary;
 }

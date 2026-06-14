@@ -17,6 +17,7 @@ import com.iot.ruleengine.entity.Rule;
 import com.iot.ruleengine.exception.BusinessException;
 import com.iot.ruleengine.repository.RuleRepository;
 import com.iot.ruleengine.service.RuleService;
+import com.iot.ruleengine.service.RuleVersionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +39,7 @@ public class RuleServiceImpl implements RuleService {
     private final RuleRepository ruleRepository;
     private final RuleParser ruleParser;
     private final RuleEngine ruleEngine;
+    private final RuleVersionService ruleVersionService;
 
     @Value("${rule.engine:aviator}")
     private String engineType;
@@ -51,10 +53,12 @@ public class RuleServiceImpl implements RuleService {
     private DroolsRuleEngine droolsRuleEngine;
 
     @Autowired
-    public RuleServiceImpl(RuleRepository ruleRepository, RuleParser ruleParser, RuleEngine ruleEngine) {
+    public RuleServiceImpl(RuleRepository ruleRepository, RuleParser ruleParser, RuleEngine ruleEngine,
+                            RuleVersionService ruleVersionService) {
         this.ruleRepository = ruleRepository;
         this.ruleParser = ruleParser;
         this.ruleEngine = ruleEngine;
+        this.ruleVersionService = ruleVersionService;
     }
 
     @Override
@@ -75,6 +79,17 @@ public class RuleServiceImpl implements RuleService {
             } catch (Exception e) {
                 log.error("二次规则解析失败: {}", e.getMessage(), e);
             }
+        }
+
+        try {
+            String comment = ruleDTO.getVersionComment();
+            String changeSummary = ruleDTO.getChangeSummary();
+            if (!StringUtils.hasText(changeSummary)) {
+                changeSummary = "创建规则";
+            }
+            ruleVersionService.createVersion(rule, comment, changeSummary);
+        } catch (Exception e) {
+            log.warn("创建初始版本快照失败: {}", e.getMessage());
         }
 
         return rule;
@@ -99,6 +114,17 @@ public class RuleServiceImpl implements RuleService {
 
         if (wasEnabled) {
             ruleEngine.unregisterRule(existRule.getId());
+        }
+
+        try {
+            String comment = ruleDTO.getVersionComment();
+            String changeSummary = ruleDTO.getChangeSummary();
+            if (!StringUtils.hasText(changeSummary)) {
+                changeSummary = "更新规则";
+            }
+            ruleVersionService.createVersion(existRule, comment, changeSummary);
+        } catch (Exception e) {
+            log.warn("创建版本快照失败: {}", e.getMessage());
         }
 
         return existRule;
