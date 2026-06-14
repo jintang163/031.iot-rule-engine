@@ -53,6 +53,7 @@ import {
   saveNotifyConfig,
   updateNotifyConfig
 } from '../services/alertApi'
+import { getRuleList } from '../services/ruleApi'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -85,9 +86,12 @@ function AlertCenter() {
 
   const [levelFilter, setLevelFilter] = useState(null)
   const [statusFilter, setStatusFilter] = useState(null)
+  const [ruleIdFilter, setRuleIdFilter] = useState(null)
   const [deviceIdFilter, setDeviceIdFilter] = useState('')
   const [keywordFilter, setKeywordFilter] = useState('')
   const [dateRange, setDateRange] = useState(null)
+
+  const [rules, setRules] = useState([])
 
   const [notifyConfigs, setNotifyConfigs] = useState([])
   const [configModalVisible, setConfigModalVisible] = useState(false)
@@ -105,6 +109,7 @@ function AlertCenter() {
       const params = {
         pageNum: page,
         pageSize,
+        ruleId: ruleIdFilter,
         level: levelFilter,
         status: statusFilter,
         deviceId: deviceIdFilter || undefined,
@@ -125,7 +130,16 @@ function AlertCenter() {
     } finally {
       setLoading(false)
     }
-  }, [levelFilter, statusFilter, deviceIdFilter, keywordFilter, dateRange, pagination.current, pagination.pageSize])
+  }, [ruleIdFilter, levelFilter, statusFilter, deviceIdFilter, keywordFilter, dateRange, pagination.current, pagination.pageSize])
+
+  const fetchRules = useCallback(async () => {
+    try {
+      const result = await getRuleList({ pageNum: 1, pageSize: 100, status: 1 })
+      setRules(result.records || [])
+    } catch (e) {
+      console.error('加载规则列表失败', e)
+    }
+  }, [])
 
   const fetchStats = useCallback(async () => {
     try {
@@ -149,12 +163,13 @@ function AlertCenter() {
     fetchData()
     fetchStats()
     fetchNotifyConfigs()
+    fetchRules()
   }, [])
 
   useEffect(() => {
     fetchData(1)
     fetchStats()
-  }, [levelFilter, statusFilter, deviceIdFilter, keywordFilter, dateRange])
+  }, [ruleIdFilter, levelFilter, statusFilter, deviceIdFilter, keywordFilter, dateRange])
 
   const handleAcknowledge = async (id) => {
     try {
@@ -213,6 +228,7 @@ function AlertCenter() {
   const handleReset = () => {
     setLevelFilter(null)
     setStatusFilter(null)
+    setRuleIdFilter(null)
     setDeviceIdFilter('')
     setKeywordFilter('')
     setDateRange(null)
@@ -640,6 +656,22 @@ function AlertCenter() {
               <Option value="pending">待处理</Option>
               <Option value="acknowledged">已确认</Option>
               <Option value="cleared">已清除</Option>
+            </Select>
+          </Col>
+          <Col xs={24} sm={12} md={4}>
+            <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 6 }}>关联规则</div>
+            <Select
+              placeholder="全部规则"
+              style={{ width: '100%' }}
+              value={ruleIdFilter}
+              onChange={setRuleIdFilter}
+              allowClear
+              showSearch
+              optionFilterProp="children"
+            >
+              {rules.map(rule => (
+                <Option key={rule.id} value={rule.id}>{rule.name}</Option>
+              ))}
             </Select>
           </Col>
           <Col xs={24} sm={12} md={4}>

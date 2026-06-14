@@ -211,6 +211,9 @@ public class AlertServiceImpl implements AlertService {
         if (params != null && params.containsKey("deviceId") && StringUtils.hasText((String) params.get("deviceId"))) {
             todayWrapper.eq("device_id", params.get("deviceId"));
         }
+        if (params != null && params.containsKey("ruleId") && params.get("ruleId") != null) {
+            todayWrapper.eq("rule_id", params.get("ruleId"));
+        }
         statistics.put("todayCount", alertRecordRepository.selectCount(todayWrapper));
 
         return statistics;
@@ -224,6 +227,9 @@ public class AlertServiceImpl implements AlertService {
     private QueryWrapper<AlertRecord> buildStatsWrapper(Map<String, Object> params) {
         QueryWrapper<AlertRecord> wrapper = new QueryWrapper<>();
         if (params != null) {
+            if (params.containsKey("ruleId") && params.get("ruleId") != null) {
+                wrapper.eq("rule_id", params.get("ruleId"));
+            }
             if (params.containsKey("deviceId") && StringUtils.hasText((String) params.get("deviceId"))) {
                 wrapper.eq("device_id", params.get("deviceId"));
             }

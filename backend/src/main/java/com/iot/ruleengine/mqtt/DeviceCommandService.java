@@ -1,17 +1,22 @@
 package com.iot.ruleengine.mqtt;
 
+import com.alibaba.fastjson.JSON;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.ruleengine.entity.ActionLog;
+import com.iot.ruleengine.entity.AlertRecord;
 import com.iot.ruleengine.entity.Device;
 import com.iot.ruleengine.history.RuleTriggerHistory;
 import com.iot.ruleengine.repository.ActionLogRepository;
 import com.iot.ruleengine.repository.DeviceRepository;
+import com.iot.ruleengine.service.AlertNotifyService;
+import com.iot.ruleengine.service.AlertService;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -34,6 +39,14 @@ public class DeviceCommandService {
     private final ActionLogRepository actionLogRepository;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+
+    @Lazy
+    @Autowired(required = false)
+    private AlertService alertService;
+
+    @Lazy
+    @Autowired(required = false)
+    private AlertNotifyService alertNotifyService;
 
     @Autowired
     public DeviceCommandService(MqttClientService mqttClientService,
@@ -76,6 +89,10 @@ public class DeviceCommandService {
                                                        Long ruleId, String ruleName) {
         log.info("发送设备控制指令, deviceId: {}, action: {}, params: {}, ruleId: {}, ruleName: {}",
                 deviceId, action, params, ruleId, ruleName);
+
+        if ("send_alert".equalsIgnoreCase(action)) {
+            return handleSendAlert(deviceId, action, params, ruleId, ruleName);
+        }
 
         Map<String, Object> paramsCopy = params != null ? new HashMap<>(params) : null;
         ActionExecutionResult.ActionExecutionResultBuilder resultBuilder = ActionExecutionResult.builder()
@@ -235,5 +252,60 @@ public class DeviceCommandService {
         command.put("timestamp", System.currentTimeMillis());
         command.put("messageId", java.util.UUID.randomUUID().toString().replace("-", ""));
         return objectMapper.writeValueAsString(command);
+    }
+
+    private ActionExecutionResult handleSendAlert(String deviceId, String action, Map<String, Object> params,
+                                                  Long ruleId, String ruleName) {
+        Map<String, Object> safeParams = params != null ? new HashMap<>(params) : new HashMap<>();
+        ActionExecutionResult.ActionExecutionResultBuilder resultBuilder = ActionExecutionResult.builder()
+                .actionType(action)
+                .targetDeviceId(deviceId)
+                .params(safeParams);
+
+        try {
+            String message = safeParams.containsKey("message") ? String.valueOf(safeParams.get("message")) : "设备异常告警";
+            String level = safeParams.containsKey("level") ? String.valueOf(safeParams.get("level")) : "warning";
+            String detail = safeParams.containsKey("detail") ? String.valueOf(safeParams.get("detail")) : null;
+            if (detail == null && !safeParams.isEmpty()) {
+                try {
+                    detail = JSON.toJSONString(safeParams);
+                } catch (Exception e) {
+                    detail = String.valueOf(safeParams);
+                }
+            }
+
+            if (alertService != null) {
+                AlertRecord alertRecord = alertService.createAlert(ruleId, ruleName, deviceId, level, message, detail);
+                if (alertNotifyService != null) {
+                    try {
+                        alertNotifyService.sendNotifications(alertRecord);
+                    } catch (Exception e) {
+                        log.warn("告警通知发送失败(DeviceCommandService), alertId={}", alertRecord.getId(), e);
+                    }
+                }
+                log.info("告警记录创建成功, alertId={}, level={}, ruleId={}, message={}",
+                        alertRecord.getId(), level, ruleId, message);
+            } else {
+                log.info("AlertService未初始化，仅记录日志, ruleId={}, message={}", ruleId, message);
+            }
+
+            ActionLog actionLog = createActionLog(deviceId, action, safeParams, ruleId, ruleName);
+            actionLog.setResult(1);
+            actionLog.setExecuteTime(LocalDateTime.now());
+            actionLogRepository.insert(actionLog);
+
+            resultBuilder.success(true).resultCode(1);
+        } catch (Exception e) {
+            log.error("处理告警动作失败, deviceId={}, ruleId={}", deviceId, ruleId, e);
+
+            ActionLog actionLog = createActionLog(deviceId, action, safeParams, ruleId, ruleName);
+            actionLog.setResult(0);
+            actionLog.setErrorMsg(e.getMessage());
+            actionLogRepository.insert(actionLog);
+
+            resultBuilder.success(false).resultCode(0).errorMsg(e.getMessage());
+        }
+
+        return resultBuilder.build();
     }
 }

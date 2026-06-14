@@ -69,6 +69,9 @@ public class ActionExecuteSink extends RichSinkFunction<ActionExecuteCommand> {
     /** action-log HTTP 批量保存URL */
     private static final String ACTION_LOG_BATCH_SAVE_URL = "/api/action-log/internal/batch-save";
 
+    /** 告警内部创建URL（用于send_alert动作） */
+    private static final String ALERT_INTERNAL_CREATE_URL = "/api/alert/internal/create";
+
     // ============== 可配置参数（构造函数传入） ==============
     /** MQTT broker地址，如 tcp://localhost:1883 */
     private final String mqttHostUrl;
@@ -225,6 +228,13 @@ public class ActionExecuteSink extends RichSinkFunction<ActionExecuteCommand> {
     public void invoke(ActionExecuteCommand command, Context context) throws Exception {
         if (command == null || command.getTargetDeviceId() == null) {
             log.warn("invoke收到空命令，已跳过");
+            return;
+        }
+
+        // ========== 拦截send_alert动作：不走MQTT，改为HTTP调用rule-engine内部告警API ==========
+        if ("send_alert".equalsIgnoreCase(command.getActionType())) {
+            boolean alertSuccess = handleSendAlertViaHttp(command);
+            enqueueActionLog(command, alertSuccess);
             return;
         }
 
@@ -400,6 +410,63 @@ public class ActionExecuteSink extends RichSinkFunction<ActionExecuteCommand> {
 
         } catch (Exception e) {
             log.error("action_log批量保存异常, batchSize={}, error={}", batch.size(), e.getMessage());
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    /**
+     * 处理send_alert动作：通过HTTP调用rule-engine内部告警API创建告警记录
+     * Flink Sink运行在独立JVM中，无法直接访问Spring的AlertService，因此通过HTTP调用
+     */
+    private boolean handleSendAlertViaHttp(ActionExecuteCommand command) {
+        log.info("Flink Sink处理send_alert动作, ruleId={}, deviceId={}, targetDeviceId={}",
+                command.getRuleId(), command.getDeviceId(), command.getTargetDeviceId());
+
+        Map<String, Object> params = command.getParams() != null ? command.getParams() : new HashMap<>();
+        String message = params.containsKey("message") ? String.valueOf(params.get("message")) : "设备异常告警";
+        String level = params.containsKey("level") ? String.valueOf(params.get("level")) : "warning";
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("ruleId", command.getRuleId());
+        payload.put("ruleName", command.getRuleName());
+        payload.put("deviceId", command.getTargetDeviceId());
+        payload.put("level", level);
+        payload.put("message", message);
+        payload.put("params", params);
+        payload.put("source", "flink-sink");
+
+        HttpURLConnection conn = null;
+        try {
+            String fullUrl = ruleServiceBaseUrl + ALERT_INTERNAL_CREATE_URL;
+            URL url = new URL(fullUrl);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(10000);
+            conn.setDoOutput(true);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] body = JSON.toJSONString(payload).getBytes(StandardCharsets.UTF_8);
+                os.write(body);
+                os.flush();
+            }
+
+            int responseCode = conn.getResponseCode();
+            if (responseCode == 200) {
+                log.info("告警创建成功(Flink Sink HTTP), ruleId={}, level={}, message={}",
+                        command.getRuleId(), level, message);
+                return true;
+            } else {
+                log.warn("告警创建HTTP非200(Flink Sink), code={}, message={}", responseCode, message);
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("告警创建HTTP异常(Flink Sink), error={}", e.getMessage());
+            return false;
         } finally {
             if (conn != null) {
                 conn.disconnect();

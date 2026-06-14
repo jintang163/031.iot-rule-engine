@@ -55,10 +55,12 @@ public class AlertController {
 
     @GetMapping("/statistics")
     public Result<Map<String, Object>> getStatistics(
+            @RequestParam(required = false) Long ruleId,
             @RequestParam(required = false) String deviceId,
             @RequestParam(required = false) LocalDateTime startTime,
             @RequestParam(required = false) LocalDateTime endTime) {
         Map<String, Object> params = new HashMap<>();
+        params.put("ruleId", ruleId);
         params.put("deviceId", deviceId);
         params.put("startTime", startTime);
         params.put("endTime", endTime);
@@ -134,5 +136,27 @@ public class AlertController {
     public Result<Void> deleteNotifyConfig(@PathVariable Long id) {
         alertNotifyConfigService.delete(id);
         return Result.success();
+    }
+
+    @PostMapping("/internal/create")
+    public Result<AlertRecord> internalCreateAlert(@RequestBody java.util.Map<String, Object> payload) {
+        try {
+            Long ruleId = payload.get("ruleId") != null ? Long.valueOf(String.valueOf(payload.get("ruleId"))) : null;
+            String ruleName = payload.get("ruleName") != null ? String.valueOf(payload.get("ruleName")) : null;
+            String deviceId = payload.get("deviceId") != null ? String.valueOf(payload.get("deviceId")) : null;
+            String level = payload.get("level") != null ? String.valueOf(payload.get("level")) : "warning";
+            String message = payload.get("message") != null ? String.valueOf(payload.get("message")) : "设备异常告警";
+            String detail = payload.get("detail") != null ? String.valueOf(payload.get("detail")) : null;
+            if (detail == null && payload.containsKey("params") && payload.get("params") != null) {
+                try {
+                    detail = com.alibaba.fastjson.JSON.toJSONString(payload.get("params"));
+                } catch (Exception ignore) {
+                }
+            }
+            AlertRecord record = alertService.createAlert(ruleId, ruleName, deviceId, level, message, detail);
+            return Result.success(record);
+        } catch (Exception e) {
+            return Result.fail("创建告警失败: " + e.getMessage());
+        }
     }
 }
