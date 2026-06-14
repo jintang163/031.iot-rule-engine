@@ -4,6 +4,7 @@ import RuleList from '../pages/RuleList.jsx'
 import RuleEditor from '../pages/RuleEditor.jsx'
 import DeviceManager from '../pages/DeviceManager.jsx'
 import ActionLog from '../pages/ActionLog.jsx'
+import AlertCenter from '../pages/AlertCenter.jsx'
 import TemplateLibrary from '../pages/TemplateLibrary.jsx'
 import RuleStatsPage from '../pages/RuleStatsPage.jsx'
 import LoginPage from '../pages/LoginPage.jsx'
@@ -54,6 +55,10 @@ const router = createBrowserRouter([
       {
         path: 'logs',
         element: <ActionLog />
+      },
+      {
+        path: 'alerts',
+        element: <AlertCenter />
       },
       {
         path: 'templates',

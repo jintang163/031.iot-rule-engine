@@ -17,6 +17,8 @@ import com.iot.ruleengine.history.RuleHistoryService;
 import com.iot.ruleengine.history.RuleTriggerHistory;
 import com.iot.ruleengine.mqtt.DeviceCommandService;
 import com.iot.ruleengine.repository.RuleRepository;
+import com.iot.ruleengine.service.AlertNotifyService;
+import com.iot.ruleengine.service.AlertService;
 import com.iot.ruleengine.stats.RuleStatsService;
 import com.iot.ruleengine.tenant.TenantContext;
 import io.micrometer.core.instrument.Counter;
@@ -67,6 +69,12 @@ public class AviatorRuleEngine implements RuleEngine {
 
     @Autowired(required = false)
     private RuleHistoryService ruleHistoryService;
+
+    @Autowired(required = false)
+    private AlertService alertService;
+
+    @Autowired(required = false)
+    private AlertNotifyService alertNotifyService;
 
     private Counter rulesRegisteredCounter;
 
@@ -361,22 +369,26 @@ public class AviatorRuleEngine implements RuleEngine {
     private List<DeviceCommandService.ActionExecutionResult> executeActions(
             List<DeviceData.ActionRequest> requests, Long ruleId, String ruleName) {
         List<DeviceCommandService.ActionExecutionResult> results = new ArrayList<>();
-        if (deviceCommandService == null) {
-            log.warn("DeviceCommandService未初始化，跳过动作执行, ruleId: {}", ruleId);
-            for (DeviceData.ActionRequest req : requests) {
+
+        for (DeviceData.ActionRequest request : requests) {
+            if ("send_alert".equals(request.getActionType())) {
+                DeviceCommandService.ActionExecutionResult alertResult = handleSendAlertAction(request, ruleId, ruleName);
+                results.add(alertResult);
+                continue;
+            }
+
+            if (deviceCommandService == null) {
                 results.add(DeviceCommandService.ActionExecutionResult.builder()
-                        .actionType(req.getActionType())
-                        .targetDeviceId(req.getTargetDeviceId())
-                        .params(req.getParams() != null ? new HashMap<>(req.getParams()) : null)
+                        .actionType(request.getActionType())
+                        .targetDeviceId(request.getTargetDeviceId())
+                        .params(request.getParams() != null ? new HashMap<>(request.getParams()) : null)
                         .success(false)
                         .resultCode(0)
                         .errorMsg("DeviceCommandService未初始化")
                         .build());
+                continue;
             }
-            return results;
-        }
 
-        for (DeviceData.ActionRequest request : requests) {
             try {
                 DeviceCommandService.ActionExecutionResult result =
                         deviceCommandService.sendCommandWithResult(
@@ -400,7 +412,69 @@ public class AviatorRuleEngine implements RuleEngine {
                         .build());
             }
         }
+
+        if (deviceCommandService == null && results.isEmpty()) {
+            for (DeviceData.ActionRequest req : requests) {
+                if (!"send_alert".equals(req.getActionType())) {
+                    results.add(DeviceCommandService.ActionExecutionResult.builder()
+                            .actionType(req.getActionType())
+                            .targetDeviceId(req.getTargetDeviceId())
+                            .params(req.getParams() != null ? new HashMap<>(req.getParams()) : null)
+                            .success(false)
+                            .resultCode(0)
+                            .errorMsg("DeviceCommandService未初始化")
+                            .build());
+                }
+            }
+        }
+
         return results;
+    }
+
+    private DeviceCommandService.ActionExecutionResult handleSendAlertAction(
+            DeviceData.ActionRequest request, Long ruleId, String ruleName) {
+        try {
+            Map<String, Object> params = request.getParams() != null ? request.getParams() : new HashMap<>();
+            String message = params.containsKey("message") ? String.valueOf(params.get("message")) : "设备异常告警";
+            String level = params.containsKey("level") ? String.valueOf(params.get("level")) : "warning";
+            String detail = params.containsKey("detail") ? String.valueOf(params.get("detail")) : null;
+            if (detail == null && params.size() > 0) {
+                detail = JSON.toJSONString(params);
+            }
+
+            com.iot.ruleengine.entity.AlertRecord alertRecord;
+            if (alertService != null) {
+                alertRecord = alertService.createAlert(ruleId, ruleName,
+                        request.getTargetDeviceId(), level, message, detail);
+                if (alertNotifyService != null) {
+                    try {
+                        alertNotifyService.sendNotifications(alertRecord);
+                    } catch (Exception e) {
+                        log.warn("告警通知发送失败, alertId={}", alertRecord.getId(), e);
+                    }
+                }
+            } else {
+                log.info("AlertService未初始化，仅记录日志, ruleId={}, message={}", ruleId, message);
+                alertRecord = null;
+            }
+
+            return DeviceCommandService.ActionExecutionResult.builder()
+                    .actionType("send_alert")
+                    .targetDeviceId(request.getTargetDeviceId())
+                    .params(new HashMap<>(params))
+                    .success(true)
+                    .resultCode(1)
+                    .build();
+        } catch (Exception e) {
+            log.error("处理告警动作失败, ruleId={}", ruleId, e);
+            return DeviceCommandService.ActionExecutionResult.builder()
+                    .actionType("send_alert")
+                    .targetDeviceId(request.getTargetDeviceId())
+                    .success(false)
+                    .resultCode(0)
+                    .errorMsg(e.getMessage())
+                    .build();
+        }
     }
 
     @Override

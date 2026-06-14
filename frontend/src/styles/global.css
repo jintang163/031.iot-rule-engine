@@ -691,3 +691,29 @@ a:hover {
 .template-card:hover .template-icon {
   transform: scale(1.1);
 }
+
+.alert-level-critical {
+  background: #fff2f0;
+  border-left: 3px solid #ff4d4f;
+}
+
+.alert-level-warning {
+  background: #fffbe6;
+  border-left: 3px solid #faad14;
+}
+
+.alert-level-info {
+  background: #e6f4ff;
+  border-left: 3px solid #1677ff;
+}
+
+.alert-stat-card {
+  border-radius: 10px !important;
+  transition: all 0.25s ease;
+  cursor: default;
+}
+
+.alert-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1) !important;
+}

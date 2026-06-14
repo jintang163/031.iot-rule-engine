@@ -171,6 +171,27 @@ rule:
     # 异步写入队列容量
     async-queue-capacity: 10000
 
+  # -------- 告警中心配置 --------
+  alert:
+    # 是否启用告警功能
+    enabled: true
+    # 钉钉通知配置
+    dingtalk:
+      webhook-url:
+      secret:
+      message-type: markdown
+    # 企业微信通知配置
+    wecom:
+      webhook-url:
+    # 邮件通知配置
+    email:
+      host:
+      port: 465
+      username:
+      password:
+      from:
+      to:
+
 management:
   endpoints:
     web:

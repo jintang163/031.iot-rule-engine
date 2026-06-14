@@ -31,7 +31,8 @@ import {
   SettingOutlined,
   TeamOutlined,
   SafetyOutlined,
-  ApartmentOutlined
+  ApartmentOutlined,
+  AlertOutlined
 } from '@ant-design/icons'
 import { useAuth } from './contexts/AuthProvider'
 
@@ -87,6 +88,14 @@ function App() {
     })
   }
 
+  if (hasPerm('rule:view')) {
+    menuItems.push({
+      key: '/alerts',
+      icon: <AlertOutlined />,
+      label: '告警中心'
+    })
+  }
+
   if (hasPerm('stats:view')) {
     menuItems.push({
       key: '/stats',
@@ -134,6 +143,7 @@ function App() {
     if (path === '/templates') return '/templates'
     if (path === '/devices') return '/devices'
     if (path === '/logs') return '/logs'
+    if (path === '/alerts') return '/alerts'
     if (path === '/stats') return '/stats'
     return '/rules'
   }
